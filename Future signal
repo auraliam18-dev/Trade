@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAMID SIGNAL AGENT — SMC Pullback Engine</title>
+<style>
+  :root{
+    --bg:#080b12; --panel:#0f1117; --panel2:#1a1d26; --line:#1e2130;
+    --up:#00d4a0; --dn:#ff4d6d; --warn:#ffa500; --mut:#555; --mut2:#888; --txt:#e0e4f0;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--txt); font-family:'Segoe UI',Tahoma,sans-serif; font-size:14px; padding-bottom:60px;}
+  .mono{font-family:'Consolas','Courier New',monospace;}
+  #header{position:sticky; top:0; z-index:50; background:rgba(8,11,18,.96); backdrop-filter:blur(8px); border-bottom:1px solid var(--line); padding:10px 16px;}
+  .hrow{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--up);}
+  .dot.scan{background:var(--warn); animation:pulse 1s infinite;}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .title{font-size:15px;font-weight:800;letter-spacing:-.3px;}
+  .badge{font-size:10px;padding:2px 7px;border-radius:5px;font-weight:700;}
+  .b-up{background:rgba(0,212,160,.13);color:var(--up);border:1px solid rgba(0,212,160,.3);}
+  .b-dn{background:rgba(255,77,109,.13);color:var(--dn);border:1px solid rgba(255,77,109,.3);}
+  .b-warn{background:rgba(255,165,0,.12);color:var(--warn);border:1px solid rgba(255,165,0,.3);}
+  .b-mut{background:#1a1d26;color:var(--mut2);border:1px solid var(--line);}
+  button{cursor:pointer;border:none;border-radius:8px;font-weight:700;font-size:12px;font-family:inherit;}
+  .btn{padding:7px 14px;background:rgba(0,212,160,.13);color:var(--up);border:1px solid rgba(0,212,160,.3);}
+  .btn:disabled{background:var(--panel2);color:var(--mut);border-color:var(--line);cursor:not-allowed;}
+  .btn-dn{background:rgba(255,77,109,.13);color:var(--dn);border:1px solid rgba(255,77,109,.3);}
+  #progressWrap{height:2px;background:var(--line);border-radius:1px;margin-top:8px;display:none;}
+  #progressBar{height:100%;width:0;background:linear-gradient(90deg,var(--up),#00ffc8);border-radius:1px;transition:width .3s;}
+  .wrap{padding:12px 14px;max-width:760px;margin:0 auto;}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px;text-align:center;}
+  .stat .v{font-size:17px;font-weight:800;}
+  .stat .l{font-size:10px;color:var(--up);font-weight:600;margin-top:2px;}
+  .stat .s{font-size:9px;color:var(--mut);margin-top:2px;}
+  #marketBar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+  .mchip{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:5px 9px;font-size:10px;color:var(--mut2);}
+  .mchip b{color:#fff;}
+  #tabs{display:flex;gap:4px;margin-bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px;}
+  .tab{flex:1;padding:8px 2px;border-radius:8px;background:transparent;color:var(--mut);font-size:11px;border:1px solid transparent;}
+  .tab.on{background:rgba(0,212,160,.12);color:var(--up);border-color:rgba(0,212,160,.3);}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:13px 14px;margin-bottom:9px;position:relative;}
+  .card.long{border-right:3px solid var(--up);}
+  .card.short{border-right:3px solid var(--dn);}
+  .card.hot{box-shadow:0 0 14px rgba(0,212,160,.12);}
+  .hotTag{position:absolute;top:-8px;left:12px;background:var(--up);color:#000;font-size:9px;font-weight:800;padding:2px 8px;border-radius:5px;}
+  .hotTag.s{background:var(--dn);color:#fff;}
+  .crow{display:flex;justify-content:space-between;align-items:center;}
+  .dirbox{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:800;}
+  .lvl4{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:11px;}
+  .lvl{background:var(--panel2);border-radius:6px;padding:6px 8px;}
+  .lvl .l{font-size:9px;color:var(--mut);margin-bottom:2px;}
+  .lvl .v{font-size:11.5px;font-weight:600;}
+  .tfrow{display:flex;gap:6px;margin-top:10px;}
+  .tf{flex:1;text-align:center;border-radius:6px;padding:4px;font-size:10px;border:1px solid var(--line);}
+  .meta{font-size:10px;color:var(--mut2);margin-top:8px;line-height:1.7;}
+  .empty{text-align:center;padding:44px 18px;color:var(--mut);}
+  .empty .ic{font-size:30px;margin-bottom:10px;}
+  input,select{background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:#fff;padding:8px 11px;font-size:12px;font-family:inherit;outline:none;}
+  input:focus{border-color:rgba(0,212,160,.4);}
+  .row{display:flex;gap:8px;align-items:center;}
+  table{width:100%;border-collapse:collapse;font-size:11px;}
+  th{color:var(--mut);font-weight:600;text-align:right;padding:6px 4px;border-bottom:1px solid var(--line);font-size:10px;}
+  td{padding:7px 4px;border-bottom:1px solid #14161f;}
+  .setrow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #14161f;font-size:12px;}
+  .setrow label{color:var(--mut2);}
+  #footer{position:fixed;bottom:0;left:0;right:0;background:rgba(8,11,18,.96);border-top:1px solid var(--line);padding:8px 14px;display:flex;justify-content:space-between;align-items:center;}
+  #footer span{font-size:10px;color:var(--mut);}
+  ::-webkit-scrollbar{width:4px;}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:2px;}
+  .small{font-size:10px;color:var(--mut);}
+  .pillrow{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div class="hrow">
+    <div class="row">
+      <div class="dot" id="statusDot"></div>
+      <span class="title">HAMID AGENT <span style="color:var(--up)">v2</span></span>
+      <span class="badge b-up" id="hotBadge" style="display:none">HOT</span>
+    </div>
+    <div class="row">
+      <span class="small mono" id="countdown">--:--</span>
+      <button class="btn" id="scanBtn" onclick="manualScan()">اسکن</button>
+    </div>
+  </div>
+  <div id="progressWrap"><div id="progressBar"></div></div>
+</div>
+
+<div class="wrap">
+  <div id="marketBar"></div>
+  <div class="grid3" id="statsRow"></div>
+  <div id="tabs">
+    <button class="tab on" data-t="signals" onclick="setTab('signals')">سیگنال‌ها</button>
+    <button class="tab" data-t="results" onclick="setTab('results')">نتایج</button>
+    <button class="tab" data-t="watch" onclick="setTab('watch')">واچ‌لیست</button>
+    <button class="tab" data-t="backtest" onclick="setTab('backtest')">بک‌تست</button>
+    <button class="tab" data-t="settings" onclick="setTab('settings')">تنظیمات</button>
+  </div>
+  <div id="view"></div>
+</div>
+
+<div id="footer">
+  <span>SMC Pullback · ADX Gate · Anti-Pump 20c · 4H→5M</span>
+  <span>حمید | Signal Agent</span>
+</div>
+
+<script>
+"use strict";
+// ═══════════════ CONFIG ═══════════════
+const CFG_DEFAULT = {
+  symbols: ["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT","DOGEUSDT","ADAUSDT","AVAXUSDT","LINKUSDT","DOTUSDT","LTCUSDT","UNIUSDT","ATOMUSDT","NEARUSDT","APTUSDT","ARBUSDT","OPUSDT","INJUSDT","SUIUSDT","TIAUSDT","SEIUSDT","WIFUSDT","FILUSDT","AAVEUSDT","CROUSDT"],
+  refreshMs: 3*60*1000,          // اسکن هر ۳ دقیقه
+  minScore: 60,                  // حداقل امتیاز کانفلوئنس
+  adxGate: 20,                   // زیر این مقدار = بازار رنج = بدون معامله (قانون حمید)
+  adxStrong: 40,
+  volSpikeMult: 2.0,             // حجم اسپایک = ۲ برابر میانگین ۲۰ کندل
+  prePumpLookback: 20,           // بررسی ۲۰ کندل قبل
+  prePumpMaxPct: 5.0,            // اگر قبلاً بیش از ۵٪ در جهت سیگنال حرکت کرده → رد
+  maxSlPct: 3.0,                 // حداکثر فاصله استاپ (٪ قیمت)
+  minSlPct: 0.35,                // حداقل فاصله استاپ
+  maxLossPct: 20,                // ضرر با لوریج هرگز > ۲۰٪ مارجین نشود
+  maxLeverage: 50, maxLeverageBTC: 99,
+  tp1R: 1.5, tp2R: 2.5, tp3R: 4.0,
+  limitZoneTolerance: 0.002,     // اگر قیمت در ۰.۲٪ ناحیه باشد → MARKET
+  entryValidityCandles: 16,      // اعتبار سفارش لیمیت: ۱۶ کندل ۱۵دقیقه = ۴ ساعت
+  cooldownCandles: 24,           // فاصله بین دو سیگنال روی یک نماد
+  maxSignalsPerScan: 6,
+  rsiLongMax: 68, rsiShortMin: 32,
+  useUsdtDominance: true
+};
+let CFG; // بعد از تعریف storage مقداردهی می‌شود
+
+// ═══════════════ SAFE STORAGE ═══════════════
+const __mem = {};
+let __lsOK = false;
+try { localStorage.setItem("__t","1"); localStorage.removeItem("__t"); __lsOK = true; } catch(e) {}
+function store_get(k){ try{ if(__lsOK){ const v = localStorage.getItem("hsa_"+k); return v?JSON.parse(v):null; } }catch(e){} return __mem[k]??null; }
+function store_set(k,v){ __mem[k]=v; if(__lsOK){ try{ localStorage.setItem("hsa_"+k, JSON.stringify(v)); }catch(e){} } }
+CFG = Object.assign({}, CFG_DEFAULT, store_get("cfg") || {});
+
+// ═══════════════ DATA LAYER (Binance Futures) ═══════════════
+const BASES = ["https://fapi.binance.com","https://fapi.binancefuture.com"];
+let BASE = BASES[0];
+const cache = new Map();
+
+async function bfetch(path){
+  for(const b of [BASE, ...BASES.filter(x=>x!==BASE)]){
+    try{
+      const r = await fetch(b+path);
+      if(r.ok){ BASE=b; return await r.json(); }
+    }catch(e){}
+  }
+  throw new Error("Binance unreachable");
+}
+async function fetchCandles(symbol, interval, limit){
+  const key = symbol+":"+interval+":"+limit;
+  const ttl = {"5m":45000,"15m":90000}[interval]||120000;
+  const c = cache.get(key);
+  if(c && Date.now()-c.ts < ttl) return c.data;
+  const raw = await bfetch(`/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
+  const data = raw.map(k=>({t:k[0], o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5], closed:k[6]<Date.now()}));
+  cache.set(key,{data, ts:Date.now()});
+  return data;
+}
+async function fetchTicker24(symbol){
+  try{ const d = await bfetch(`/fapi/v1/ticker/24hr?symbol=${symbol}`);
+    return {price:+d.lastPrice, chg:+d.priceChangePercent, vol:+d.quoteVolume};
+  }catch(e){ return null; }
+}
+async function fetchPrice(symbol){
+  try{ const d = await bfetch(`/fapi/v1/ticker/price?symbol=${symbol}`); return +d.price; }catch(e){ return null; }
+}
+// دامیننس تتر از CoinGecko (هر ۵ دقیقه)
+let usdtDom = {value:null, prev:null, ts:0};
+async function fetchUsdtDominance(){
+  if(Date.now()-usdtDom.ts < 5*60*1000) return usdtDom;
+  try{
+    const r = await fetch("https://api.coingecko.com/api/v3/global");
+    if(r.ok){ const j = await r.json();
+      const v = j?.data?.market_cap_percentage?.usdt;
+      if(v){ usdtDom = {value:v, prev:usdtDom.value??v, ts:Date.now()}; }
+    }
+  }catch(e){}
+  return usdtDom;
+}
+
+// ═══════════════ RESAMPLE 15m → 1H / 4H ═══════════════
+function resample(c15, hours){
+  const ms = hours*3600*1000, out=[]; let cur=null;
+  for(const c of c15){
+    const bucket = Math.floor(c.t/ms)*ms;
+    if(!cur || cur.t!==bucket){
+      if(cur) out.push(cur);
+      cur = {t:bucket,o:c.o,h:c.h,l:c.l,c:c.c,v:c.v};
+    } else { cur.h=Math.max(cur.h,c.h); cur.l=Math.min(cur.l,c.l); cur.c=c.c; cur.v+=c.v; }
+  }
+  if(cur) out.push(cur);
+  return out;
+}
+
+// ═══════════════ INDICATORS ═══════════════
+function ema(arr, p){
+  const k=2/(p+1), out=new Array(arr.length);
+  let e=arr[0];
+  for(let i=0;i<arr.length;i++){ e = i? arr[i]*k+e*(1-k) : arr[0]; out[i]=e; }
+  return out;
+}
+function rsi(closes, p=14){
+  if(closes.length<p+2) return 50;
+  let g=0,l=0;
+  for(let i=1;i<=p;i++){ const d=closes[i]-closes[i-1]; if(d>0)g+=d; else l-=d; }
+  let ag=g/p, al=l/p;
+  for(let i=p+1;i<closes.length;i++){
+    const d=closes[i]-closes[i-1];
+    ag=(ag*(p-1)+(d>0?d:0))/p; al=(al*(p-1)+(d<0?-d:0))/p;
+  }
+  return al===0?100:100-100/(1+ag/al);
+}
+function atr(candles, p=14){
+  if(candles.length<p+1) return 0;
+  const trs=[];
+  for(let i=1;i<candles.length;i++){
+    const c=candles[i], pc=candles[i-1];
+    trs.push(Math.max(c.h-c.l, Math.abs(c.h-pc.c), Math.abs(c.l-pc.c)));
+  }
+  let a = trs.slice(0,p).reduce((s,x)=>s+x,0)/p;
+  for(let i=p;i<trs.length;i++) a=(a*(p-1)+trs[i])/p;
+  return a;
+}
+function adx(candles, p=14){
+  if(candles.length<p*2+2) return 0;
+  let trS=0, pS=0, mS=0; const dxs=[];
+  let trA=null,pA=null,mA=null;
+  for(let i=1;i<candles.length;i++){
+    const c=candles[i], pc=candles[i-1];
+    const up=c.h-pc.h, dn=pc.l-c.l;
+    const pdm = (up>dn && up>0)?up:0;
+    const mdm = (dn>up && dn>0)?dn:0;
+    const tr = Math.max(c.h-c.l, Math.abs(c.h-pc.c), Math.abs(c.l-pc.c));
+    if(i<=p){ trS+=tr; pS+=pdm; mS+=mdm; if(i===p){trA=trS;pA=pS;mA=mS;} continue; }
+    trA = trA - trA/p + tr; pA = pA - pA/p + pdm; mA = mA - mA/p + mdm;
+    const pdi = trA? 100*pA/trA : 0, mdi = trA? 100*mA/trA : 0;
+    const dx = (pdi+mdi)? 100*Math.abs(pdi-mdi)/(pdi+mdi) : 0;
+    dxs.push(dx);
+  }
+  if(dxs.length<p) return 0;
+  let a = dxs.slice(0,p).reduce((s,x)=>s+x,0)/p;
+  for(let i=p;i<dxs.length;i++) a=(a*(p-1)+dxs[i])/p;
+  return a;
+}
+
+// ═══════════════ SMC ENGINE ═══════════════
+function swingPoints(candles, lb=3){
+  const out=[];
+  for(let i=lb;i<candles.length-lb;i++){
+    const c=candles[i]; let hi=true, lo=true;
+    for(let j=i-lb;j<=i+lb;j++){
+      if(j===i) continue;
+      if(candles[j].h>=c.h) hi=false;
+      if(candles[j].l<=c.l) lo=false;
+    }
+    if(hi) out.push({i, p:c.h, type:"H"});
+    if(lo) out.push({i, p:c.l, type:"L"});
+  }
+  return out;
+}
+function detectBOS(candles, swings){
+  const ev=[];
+  const hs = swings.filter(s=>s.type==="H").slice(-8);
+  const ls = swings.filter(s=>s.type==="L").slice(-8);
+  for(const sw of hs){
+    for(let i=sw.i+1;i<candles.length;i++){
+      if(candles[i].c > sw.p){ ev.push({dir:"BULL", level:sw.p, i}); break; }
+    }
+  }
+  for(const sw of ls){
+    for(let i=sw.i+1;i<candles.length;i++){
+      if(candles[i].c < sw.p){ ev.push({dir:"BEAR", level:sw.p, i}); break; }
+    }
+  }
+  return ev.sort((a,b)=>a.i-b.i);
+}
+function detectCHoCH(bos){
+  const out=[];
+  for(let i=1;i<bos.length;i++)
+    if(bos[i-1].dir!==bos[i].dir) out.push({dir:bos[i].dir, level:bos[i].level, i:bos[i].i});
+  return out;
+}
+function detectFVG(candles, maxAge=60){
+  const out=[], n=candles.length, price=candles[n-1].c;
+  for(let i=Math.max(2,n-maxAge); i<n; i++){
+    const a=candles[i-2], b=candles[i];
+    if(b.l > a.h){ // bullish FVG
+      let filled=false;
+      for(let j=i+1;j<n;j++) if(candles[j].l <= a.h){ filled=true; break; }
+      if(!filled) out.push({dir:"BULL", top:b.l, bot:a.h, mid:(b.l+a.h)/2, i});
+    }
+    if(b.h < a.l){ // bearish FVG
+      let filled=false;
+      for(let j=i+1;j<n;j++) if(candles[j].h >= a.l){ filled=true; break; }
+      if(!filled) out.push({dir:"BEAR", top:a.l, bot:b.h, mid:(a.l+b.h)/2, i});
+    }
+  }
+  return out.filter(f => Math.abs(f.mid-price)/price < 0.04);
+}
+// آخرین کندل مخالف قبل از حرکت ایمپالسیو = Order Block
+function detectOB(candles, avgVol){
+  const out=[], n=candles.length;
+  for(let i=Math.max(3,n-60); i<n-1; i++){
+    const c=candles[i], nx=candles[i+1];
+    const body = Math.abs(nx.c-nx.o), range = nx.h-nx.l;
+    const impulsive = range>0 && body/range>0.6 && nx.v > avgVol*1.5;
+    if(!impulsive) continue;
+    if(nx.c>nx.o && c.c<c.o){ // کندل قرمز قبل از ایمپالس صعودی
+      let mit=false;
+      for(let j=i+2;j<n;j++) if(candles[j].l <= c.l){ mit=true; break; }
+      if(!mit) out.push({dir:"BULL", top:c.h, bot:c.l, mid:(c.h+c.l)/2, i});
+    }
+    if(nx.c<nx.o && c.c>c.o){
+      let mit=false;
+      for(let j=i+2;j<n;j++) if(candles[j].h >= c.h){ mit=true; break; }
+      if(!mit) out.push({dir:"BEAR", top:c.h, bot:c.l, mid:(c.h+c.l)/2, i});
+    }
+  }
+  return out;
+}
+function detectLiqGrab(candles, swings, win=12){
+  const n=candles.length, out=[];
+  for(const sw of swings){
+    for(let i=Math.max(sw.i+1, n-win); i<n; i++){
+      const c=candles[i];
+      if(sw.type==="L" && c.l < sw.p && c.c > sw.p) out.push({dir:"BULL", level:sw.p, i});
+      if(sw.type==="H" && c.h > sw.p && c.c < sw.p) out.push({dir:"BEAR", level:sw.p, i});
+    }
+  }
+  return out;
+}
+function srZones(swings){
+  const tol=0.003, zones=[];
+  const cluster=(pts,type)=>{
+    const used=new Set();
+    for(let i=0;i<pts.length;i++){
+      if(used.has(i)) continue;
+      let touches=1, sum=pts[i]; used.add(i);
+      for(let j=i+1;j<pts.length;j++){
+        if(!used.has(j) && Math.abs(pts[j]-pts[i])/pts[i]<tol){ touches++; sum+=pts[j]; used.add(j); }
+      }
+      if(touches>=2) zones.push({type, price:sum/touches, strength:Math.min(100,touches*25)});
+    }
+  };
+  cluster(swings.filter(s=>s.type==="H").map(s=>s.p), "R");
+  cluster(swings.filter(s=>s.type==="L").map(s=>s.p), "S");
+  return zones.sort((a,b)=>b.strength-a.strength).slice(0,12);
+}
+
+function analyzeTF(candles){
+  if(!candles || candles.length<60) return null;
+  const closes = candles.map(c=>c.c);
+  const e8=ema(closes,8), e21=ema(closes,21), e55=ema(closes,55);
+  const n=closes.length-1;
+  const stackBull = e8[n]>e21[n] && e21[n]>e55[n];
+  const stackBear = e8[n]<e21[n] && e21[n]<e55[n];
+  const sw = swingPoints(candles,3);
+  const bos = detectBOS(candles, sw);
+  const choch = detectCHoCH(bos);
+  const lastBOS = bos[bos.length-1]||null;
+  const lastCHoCH = choch[choch.length-1]||null;
+  const recent = bos.slice(-4);
+  const bull = recent.filter(b=>b.dir==="BULL").length;
+  const bear = recent.filter(b=>b.dir==="BEAR").length;
+  let structTrend = "RANGE";
+  if(bull>bear+1) structTrend="BULL"; else if(bear>bull+1) structTrend="BEAR";
+  let trend="RANGE";
+  if(stackBull && structTrend!=="BEAR") trend="BULL";
+  else if(stackBear && structTrend!=="BULL") trend="BEAR";
+  else if(structTrend!=="RANGE" && !stackBull && !stackBear) trend=structTrend;
+  const avgVol = candles.slice(-21,-1).reduce((s,c)=>s+c.v,0)/20;
+  return {
+    candles, closes, trend, sw, bos, lastBOS, lastCHoCH,
+    fvgs: detectFVG(candles), obs: detectOB(candles, avgVol),
+    grabs: detectLiqGrab(candles, sw),
+    zones: srZones(sw),
+    rsi: rsi(closes.slice(-60)), adx: adx(candles.slice(-80)), atr: atr(candles.slice(-40)),
+    ema21: e21[n], ema55: e55[n], avgVol,
+    price: closes[n]
+  };
+}
+
+// ═══════════════ فیلتر آنتی‌پامپ: بررسی ۲۰ کندل قبل ═══════════════
+function prePumped(candles15, dir){
+  const lb = CFG.prePumpLookback;
+  if(candles15.length < lb+2) return true;
+  const win = candles15.slice(-(lb+1), -1); // ۲۰ کندل قبل از کندل فعلی
+  const start = win[0].o;
+  const end = win[win.length-1].c;
+  const movePct = (end-start)/start*100;
+  const hi = Math.max(...win.map(c=>c.h)), lo = Math.min(...win.map(c=>c.l));
+  const rangePct = (hi-lo)/lo*100;
+  if(dir==="LONG"  && (movePct >  CFG.prePumpMaxPct || rangePct > CFG.prePumpMaxPct*1.8)) return true;
+  if(dir==="SHORT" && (movePct < -CFG.prePumpMaxPct || rangePct > CFG.prePumpMaxPct*1.8)) return true;
+  // اسپایک حجمی تکراری: اگر در ۲۰ کندل قبل اسپایکی هم‌اندازه بوده، این اسپایک «تازه» نیست
+  const avg = win.slice(0,15).reduce((s,c)=>s+c.v,0)/15;
+  const priorSpikes = win.slice(-5).filter(c=>c.v > avg*CFG.volSpikeMult).length;
+  if(priorSpikes >= 3) return true;
+  return false;
+}
+
+// ═══════════════ SIGNAL ENGINE (هسته مشترک لایو + بک‌تست) ═══════════════
+// ورودی: کندل‌های ۱۵ دقیقه (آرایه کامل تا کندل بستهٔ فعلی) + اختیاری ۵ دقیقه
+function evaluate(symbol, c15, c5){
+  if(!c15 || c15.length < 920) return null; // برای ۴ساعته حداقل ~۶۰ کندل لازم است
+  const a15 = analyzeTF(c15);
+  const a1h = analyzeTF(resample(c15, 1));
+  const a4h = analyzeTF(resample(c15, 4));
+  if(!a15 || !a1h || !a4h) return null;
+
+  // ۱) جهت از روند ۴ساعته + ۱ساعته — هرگز خلاف روند (قانون حمید)
+  let dir = null;
+  if(a4h.trend==="BULL" && a1h.trend==="BULL") dir="LONG";
+  else if(a4h.trend==="BEAR" && a1h.trend==="BEAR") dir="SHORT";
+  if(!dir) return null;
+
+  // ۲) گیت ADX — زیر ۲۰ یعنی رنج، معامله نکن
+  if(a1h.adx < CFG.adxGate) return null;
+
+  // ۳) RSI اشباع نباشد
+  if(dir==="LONG"  && a1h.rsi > CFG.rsiLongMax) return null;
+  if(dir==="SHORT" && a1h.rsi < CFG.rsiShortMin) return null;
+
+  // ۴) فیلتر آنتی‌پامپ — ۲۰ کندل قبل
+  if(prePumped(c15, dir)) return null;
+
+  const price = a15.price;
+  const want = dir==="LONG" ? "BULL" : "BEAR";
+
+  // ۵) شناسایی ستاپ (پولبک = اصلی)
+  let setup=null, zone=null;
+  // پولبک به FVG/OB در جهت روند
+  const zones15 = [...a15.fvgs, ...a15.obs].filter(z=>z.dir===want);
+  const z1h = [...a1h.fvgs, ...a1h.obs].filter(z=>z.dir===want);
+  const allZones = [...zones15, ...z1h];
+  if(dir==="LONG"){
+    const below = allZones.filter(z=>z.mid < price && (price-z.mid)/price < 0.02);
+    if(below.length){ zone = below.sort((a,b)=>b.mid-a.mid)[0]; setup="PULLBACK_ZONE"; }
+  } else {
+    const above = allZones.filter(z=>z.mid > price && (z.mid-price)/price < 0.02);
+    if(above.length){ zone = above.sort((a,b)=>a.mid-b.mid)[0]; setup="PULLBACK_ZONE"; }
+  }
+  // پولبک به EMA21 پانزده دقیقه (ربان)
+  if(!setup){
+    const dist = Math.abs(price - a15.ema21)/price;
+    if(dist < 0.004 &&
+       ((dir==="LONG" && price >= a15.ema21*0.998) || (dir==="SHORT" && price <= a15.ema21*1.002))){
+      setup="PULLBACK_EMA";
+      zone = {mid:a15.ema21, top:a15.ema21*1.002, bot:a15.ema21*0.998};
+    }
+  }
+  // Liquidity Grab تازه (SMC)
+  const n15 = c15.length-1;
+  const freshGrab = a15.grabs.find(g=>g.dir===want && n15-g.i <= 3);
+  if(freshGrab && !setup){ setup="LIQ_GRAB"; zone={mid:freshGrab.level, top:freshGrab.level*1.002, bot:freshGrab.level*0.998}; }
+
+  // CHoCH تازه روی ۱۵ دقیقه در جهت روند بالادست
+  const freshChoch = a15.lastCHoCH && a15.lastCHoCH.dir===want && (n15 - a15.lastCHoCH.i) <= 4;
+
+  // شکست با حجم (ستاپ فرعی — فقط با حجم بالا و ADX قوی)
+  let breakout=false;
+  if(!setup){
+    const lastC = c15[n15];
+    const volSpike = lastC.v > a15.avgVol * CFG.volSpikeMult;
+    const res = a15.zones.filter(z=>z.type==="R" && z.price<price && (price-z.price)/price<0.006);
+    const sup = a15.zones.filter(z=>z.type==="S" && z.price>price && (z.price-price)/price<0.006);
+    if(volSpike && a1h.adx>=CFG.adxStrong*0.75){
+      if(dir==="LONG" && res.length){ setup="BREAKOUT"; breakout=true; zone={mid:res[0].price, top:price, bot:res[0].price}; }
+      if(dir==="SHORT" && sup.length){ setup="BREAKOUT"; breakout=true; zone={mid:sup[0].price, top:sup[0].price, bot:price}; }
+    }
+  }
+  if(!setup) return null;
+
+  // ۶) امتیازدهی کانفلوئنس
+  let score = 0;
+  score += 20; // هم‌راستایی 4H+1H (پیش‌شرط)
+  if(a15.trend === want) score += 10;
+  if(a1h.lastBOS?.dir===want) score += 8;
+  if(a1h.lastCHoCH?.dir===want) score += 6;
+  if(freshChoch) score += 12;
+  if(freshGrab) score += 12;
+  if(setup==="PULLBACK_ZONE") score += 14;
+  if(setup==="PULLBACK_EMA") score += 8;
+  if(breakout) score += 6;
+  if(a1h.adx >= CFG.adxStrong) score += 8;
+  else if(a1h.adx >= 28) score += 5;
+  if(dir==="LONG" && a1h.rsi>45 && a1h.rsi<62) score += 5;
+  if(dir==="SHORT" && a1h.rsi<55 && a1h.rsi>38) score += 5;
+  const lastC = c15[n15];
+  if(lastC.v > a15.avgVol*CFG.volSpikeMult) score += 8;
+  else if(lastC.v > a15.avgVol*1.3) score += 4;
+  // تایید ۵ دقیقه (فقط لایو)
+  let conf5 = null;
+  if(c5 && c5.length>80){
+    const a5 = analyzeTF(c5);
+    if(a5){
+      conf5 = a5.trend===want || (a5.lastCHoCH?.dir===want && (c5.length-1-a5.lastCHoCH.i)<=6);
+      score += conf5 ? 6 : -8;
+    }
+  }
+  // دامیننس تتر: صعود تتر = ریسک‌گریزی → جریمه لانگ آلت‌ها
+  if(CFG.useUsdtDominance && usdtDom.value!=null && usdtDom.prev!=null){
+    const d = usdtDom.value - usdtDom.prev;
+    if(dir==="LONG"  && d > 0.05) score -= 8;
+    if(dir==="SHORT" && d > 0.05) score += 4;
+    if(dir==="LONG"  && d < -0.05) score += 4;
+  }
+  score = Math.max(0, Math.min(100, score));
+  if(score < CFG.minScore) return null;
+
+  // ۷) ورود: لیمیت روی ناحیه — یا مارکت اگر قیمت داخل/چسبیده به ناحیه
+  let entryType="LIMIT", entry=zone.mid;
+  if(setup==="BREAKOUT"){ entryType="MARKET"; entry=price; }
+  else {
+    const distToZone = Math.abs(price-zone.mid)/price;
+    if(distToZone <= CFG.limitZoneTolerance){ entryType="MARKET"; entry=price; }
+  }
+
+  // ۸) استاپ ساختاری + سقف ضرر ۲۰٪ با لوریج
+  const buf = a15.atr*0.6;
+  let sl;
+  if(dir==="LONG"){
+    const base = zone.bot ?? zone.mid;
+    sl = Math.min(base, entry) - buf;
+  } else {
+    const base = zone.top ?? zone.mid;
+    sl = Math.max(base, entry) + buf;
+  }
+  let slPct = Math.abs(entry-sl)/entry*100;
+  if(slPct < CFG.minSlPct){ slPct = CFG.minSlPct; sl = dir==="LONG"? entry*(1-slPct/100) : entry*(1+slPct/100); }
+  if(slPct > CFG.maxSlPct) return null; // استاپ گشاد = ستاپ بی‌کیفیت
+  const R = Math.abs(entry-sl);
+  const tp1 = dir==="LONG"? entry+R*CFG.tp1R : entry-R*CFG.tp1R;
+  const tp2 = dir==="LONG"? entry+R*CFG.tp2R : entry-R*CFG.tp2R;
+  const tp3 = dir==="LONG"? entry+R*CFG.tp3R : entry-R*CFG.tp3R;
+  if(tp1<=0) return null;
+
+  // لوریج: ضرر در استاپ دقیقاً ≤ ۲۰٪ مارجین
+  const maxLev = symbol.startsWith("BTC")? CFG.maxLeverageBTC : CFG.maxLeverage;
+  const lev = Math.max(1, Math.min(maxLev, Math.floor(CFG.maxLossPct / slPct)));
+
+  return {
+    id: symbol+"-"+c15[n15].t,
+    symbol, dir, setup, entryType,
+    entry, sl, tp1, tp2, tp3, slPct, lev,
+    lossAtSL: +(slPct*lev).toFixed(1),
+    score, rsi:a1h.rsi, adx:a1h.adx,
+    t4:a4h.trend, t1:a1h.trend, t15:a15.trend,
+    conf5, price,
+    candleT: c15[n15].t,
+    createdAt: Date.now(), status:"PENDING"
+  };
+}
+
+// ═══════════════ ردیاب نتایج (Outcome Tracker) ═══════════════
+// status: PENDING(منتظر تایید کاربر؟ نه—اینجا یعنی منتظر ورود لیمیت) ACTIVE, TP1,TP2,TP3, SL, EXPIRED
+function getJournal(){ return store_get("journal") || []; }
+function setJournal(j){ store_set("journal", j.slice(0,400)); }
+
+async function trackOutcomes(){
+  const j = getJournal();
+  const open = j.filter(s=>["PENDING","ACTIVE","TP1","TP2"].includes(s.status));
+  const symbols = [...new Set(open.map(s=>s.symbol))];
+  for(const sym of symbols){
+    let c5;
+    try{ c5 = await fetchCandles(sym,"5m",200); }catch(e){ continue; }
+    for(const s of open.filter(x=>x.symbol===sym)){
+      const after = c5.filter(c=>c.t > s.candleT);
+      if(!after.length) continue;
+      for(const c of after){
+        if(s.status==="PENDING"){
+          // اعتبار لیمیت
+          if(c.t - s.candleT > CFG.entryValidityCandles*15*60*1000){ s.status="EXPIRED"; break; }
+          const touched = s.entryType==="MARKET" || (s.dir==="LONG"? c.l<=s.entry : c.h>=s.entry);
+          if(touched){ s.status="ACTIVE"; s.filledAt=c.t; }
+          if(s.status!=="ACTIVE") continue;
+        }
+        if(["ACTIVE","TP1","TP2"].includes(s.status)){
+          const hitSL  = s.dir==="LONG"? c.l<=s.sl  : c.h>=s.sl;
+          const hitTP1 = s.dir==="LONG"? c.h>=s.tp1 : c.l<=s.tp1;
+          const hitTP2 = s.dir==="LONG"? c.h>=s.tp2 : c.l<=s.tp2;
+          const hitTP3 = s.dir==="LONG"? c.h>=s.tp3 : c.l<=s.tp3;
+          if(s.status==="ACTIVE"){
+            if(hitSL){ s.status="SL"; s.pnlPct = -s.lossAtSL; s.closedAt=c.t; break; }
+            if(hitTP1){ s.status="TP1"; s.pnlPct = +(s.slPct*CFG.tp1R*s.lev).toFixed(1); s.slMoved=s.entry; }
+          }
+          if(s.status==="TP1"){
+            if(s.dir==="LONG"? c.l<=s.entry : c.h>=s.entry){ s.status="BE_AFTER_TP1"; s.closedAt=c.t; break; }
+            if(hitTP2){ s.status="TP2"; s.pnlPct = +(s.slPct*CFG.tp2R*s.lev).toFixed(1); }
+          }
+          if(s.status==="TP2"){
+            if(hitTP3){ s.status="TP3"; s.pnlPct = +(s.slPct*CFG.tp3R*s.lev).toFixed(1); s.closedAt=c.t; break; }
+            if(s.dir==="LONG"? c.l<=s.tp1 : c.h>=s.tp1){ s.status="WIN_TP2"; s.closedAt=c.t; break; }
+          }
+        }
+      }
+    }
+  }
+  setJournal(j);
+}
+function journalStats(list){
+  const done = list.filter(s=>["SL","TP1","TP2","TP3","BE_AFTER_TP1","WIN_TP2","EXPIRED"].includes(s.status));
+  const wins = done.filter(s=>["TP1","TP2","TP3","BE_AFTER_TP1","WIN_TP2"].includes(s.status));
+  const losses = done.filter(s=>s.status==="SL");
+  const decided = wins.length + losses.length;
+  const wr = decided? wins.length/decided*100 : 0;
+  const pnl = done.reduce((s,x)=>s+(x.pnlPct||0),0);
+  return {total:list.length, done:done.length, wins:wins.length, losses:losses.length, wr, pnl,
+    expired: done.filter(s=>s.status==="EXPIRED").length};
+}
+
+// ═══════════════ BACKTEST ENGINE ═══════════════
+// روی همان موتور evaluate() — کندل‌به‌کندل ۱۵ دقیقه جلو می‌رود
+let btRunning=false, btAbort=false;
+async function runBacktest(){
+  if(btRunning) return;
+  btRunning=true; btAbort=false;
+  const syms = (document.getElementById("btSyms")?.value||"").trim()
+    ? document.getElementById("btSyms").value.toUpperCase().split(/[,\s]+/).map(s=>s.endsWith("USDT")?s:s+"USDT")
+    : CFG.symbols.slice(0,12);
+  const res = {trades:[], bySetup:{}, errors:[]};
+  const out = document.getElementById("btOut");
+  const setP = (t)=>{ if(out) out.innerHTML = `<div class="empty"><div class="ic">⏳</div><div>${t}</div></div>`; };
+  for(let si=0; si<syms.length; si++){
+    if(btAbort) break;
+    const sym = syms[si];
+    setP(`بک‌تست ${sym} (${si+1}/${syms.length}) — ${res.trades.length} ترید`);
+    let c15;
+    try{ c15 = await fetchCandles(sym,"15m",1500); }catch(e){ res.errors.push(sym); continue; }
+    c15 = c15.filter(c=>c.closed!==false);
+    let lastSigIdx = -999;
+    for(let i=1000; i<c15.length-2; i+=1){
+      if(i - lastSigIdx < CFG.cooldownCandles) continue;
+      const slice = c15.slice(0, i+1);
+      const sig = evaluate(sym, slice.slice(-1000), null);
+      if(!sig) continue;
+      lastSigIdx = i;
+      // شبیه‌سازی نتیجه روی کندل‌های بعدی
+      let filled = sig.entryType==="MARKET", entryIdx=i;
+      let status=null, pnl=0;
+      for(let j=i+1; j<c15.length; j++){
+        const c=c15[j];
+        if(!filled){
+          if(j-i > CFG.entryValidityCandles){ status="EXPIRED"; break; }
+          if(sig.dir==="LONG"? c.l<=sig.entry : c.h>=sig.entry){ filled=true; entryIdx=j; }
+          else continue;
+        }
+        const hitSL  = sig.dir==="LONG"? c.l<=sig.sl  : c.h>=sig.sl;
+        const hitTP1 = sig.dir==="LONG"? c.h>=sig.tp1 : c.l<=sig.tp1;
+        if(hitSL && hitTP1){ // در یک کندل هر دو؟ محافظه‌کارانه: باخت
+          status="SL"; pnl=-sig.lossAtSL; break;
+        }
+        if(hitSL){ status="SL"; pnl=-sig.lossAtSL; break; }
+        if(hitTP1){ status="TP1"; pnl=sig.slPct*CFG.tp1R*sig.lev; break; }
+        if(j-entryIdx > 96){ // ۲۴ ساعت بدون نتیجه → خروج سر به سر
+          const px=c.c; const m = sig.dir==="LONG"? (px-sig.entry)/sig.entry : (sig.entry-px)/sig.entry;
+          status = m>0? "TIME_WIN":"TIME_LOSS"; pnl = m*100*sig.lev; break;
+        }
+      }
+      if(!status) continue;
+      res.trades.push({sym, dir:sig.dir, setup:sig.setup, score:sig.score, status, pnl:+pnl.toFixed(1), slPct:sig.slPct, lev:sig.lev, t:c15[i].t});
+      const b = res.bySetup[sig.setup] = res.bySetup[sig.setup]||{w:0,l:0,n:0,pnl:0};
+      b.n++; b.pnl+=pnl;
+      if(status==="TP1"||status==="TIME_WIN") b.w++;
+      if(status==="SL"||status==="TIME_LOSS") b.l++;
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+  store_set("lastBacktest", {ts:Date.now(), res:{trades:res.trades.slice(-300), bySetup:res.bySetup}});
+  btRunning=false;
+  renderBacktestResult(res);
+}
+function renderBacktestResult(res){
+  const out = document.getElementById("btOut");
+  if(!out) return;
+  const tr = res.trades;
+  const decided = tr.filter(t=>["TP1","SL","TIME_WIN","TIME_LOSS"].includes(t.status));
+  const wins = decided.filter(t=>["TP1","TIME_WIN"].includes(t.status)).length;
+  const wr = decided.length? wins/decided.length*100 : 0;
+  const pnl = tr.reduce((s,t)=>s+t.pnl,0);
+  const pass = wr>=70;
+  let setupRows = Object.entries(res.bySetup).map(([k,v])=>{
+    const swr = (v.w+v.l)? (v.w/(v.w+v.l)*100).toFixed(0):"—";
+    return `<tr><td class="mono">${k}</td><td>${v.n}</td><td style="color:${swr>=70?'var(--up)':'var(--warn)'}">${swr}%</td><td class="mono" style="color:${v.pnl>=0?'var(--up)':'var(--dn)'}">${v.pnl.toFixed(0)}%</td></tr>`;
+  }).join("");
+  out.innerHTML = `
+    <div class="card" style="border-color:${pass?'rgba(0,212,160,.4)':'rgba(255,165,0,.4)'}">
+      <div class="crow">
+        <div>
+          <div style="font-size:22px;font-weight:800;color:${pass?'var(--up)':'var(--warn)'}">${wr.toFixed(1)}%</div>
+          <div class="small">وین‌ریت (TP1) — ${pass? '✓ بالای ۷۰٪':'⚠ زیر ۷۰٪ — آستانه‌ها را در تنظیمات سخت‌تر کن'}</div>
+        </div>
+        <div style="text-align:left">
+          <div class="mono" style="font-size:15px;font-weight:700;color:${pnl>=0?'var(--up)':'var(--dn)'}">${pnl>=0?'+':''}${pnl.toFixed(0)}%</div>
+          <div class="small">برآیند (با لوریج)</div>
+        </div>
+      </div>
+      <div class="pillrow">
+        <span class="badge b-mut">${tr.length} سیگنال</span>
+        <span class="badge b-up">${wins} برد</span>
+        <span class="badge b-dn">${decided.length-wins} باخت</span>
+        <span class="badge b-mut">${tr.filter(t=>t.status==="EXPIRED").length} منقضی</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="small" style="margin-bottom:8px">عملکرد به تفکیک ستاپ</div>
+      <table><tr><th>ستاپ</th><th>تعداد</th><th>وین‌ریت</th><th>PnL</th></tr>${setupRows||"<tr><td colspan=4>—</td></tr>"}</table>
+    </div>
+    <div class="small" style="text-align:center;margin-top:6px">دوره: ~۱۵ روز اخیر (۱۵۰۰ کندل ۱۵دقیقه) · خروج زمانی پس از ۲۴ ساعت</div>`;
+}
+
+// ═══════════════ SCANNER ═══════════════
+let signals = store_get("signals") || [];
+let watchData = [];
+let scanning=false, nextRefresh=Date.now()+CFG.refreshMs, lastScan=null;
+
+async function scan(){
+  if(scanning) return;
+  scanning=true;
+  document.getElementById("statusDot").classList.add("scan");
+  const pw=document.getElementById("progressWrap"), pb=document.getElementById("progressBar");
+  pw.style.display="block";
+  await fetchUsdtDominance();
+  const found=[];
+  const syms = CFG.symbols;
+  const cooldownMap = store_get("cooldown")||{};
+  for(let i=0;i<syms.length;i+=4){
+    const batch = syms.slice(i,i+4);
+    const results = await Promise.allSettled(batch.map(async sym=>{
+      const last = cooldownMap[sym]||0;
+      if(Date.now()-last < CFG.cooldownCandles*15*60*1000) return null;
+      const [c15,c5] = await Promise.all([fetchCandles(sym,"15m",1000), fetchCandles(sym,"5m",150)]);
+      return evaluate(sym, c15.filter(c=>c.closed!==false), c5);
+    }));
+    for(const r of results) if(r.status==="fulfilled" && r.value) found.push(r.value);
+    pb.style.width = Math.min(100, ((i+4)/syms.length*100)).toFixed(0)+"%";
+    if(i+4<syms.length) await new Promise(r=>setTimeout(r,250));
+  }
+  found.sort((a,b)=>b.score-a.score);
+  const top = found.slice(0, CFG.maxSignalsPerScan);
+  const j = getJournal();
+  const existing = new Set(j.filter(s=>["PENDING","ACTIVE"].includes(s.status)).map(s=>s.symbol));
+  for(const s of top){
+    if(existing.has(s.symbol)) continue;
+    j.unshift(s);
+    cooldownMap[s.symbol]=Date.now();
+    notify(s);
+  }
+  setJournal(j);
+  store_set("cooldown", cooldownMap);
+  await trackOutcomes();
+  lastScan=new Date(); nextRefresh=Date.now()+CFG.refreshMs;
+  scanning=false;
+  document.getElementById("statusDot").classList.remove("scan");
+  pw.style.display="none"; pb.style.width="0";
+  render();
+}
+function manualScan(){ scan(); }
+function notify(s){
+  try{
+    if(Notification.permission==="granted"){
+      new Notification(`${s.dir==="LONG"?"🟢 LONG":"🔴 SHORT"} ${s.symbol.replace("USDT","")}`,
+        {body:`${s.setup} · امتیاز ${s.score} · ورود ${s.entryType} @ ${fmt(s.entry)} · لوریج ${s.lev}x`});
+    }
+  }catch(e){}
+  try{ const a=new AudioContext(), o=a.createOscillator(), g=a.createGain();
+    o.connect(g); g.connect(a.destination); o.frequency.value = s.dir==="LONG"?880:440;
+    g.gain.setValueAtTime(.12,a.currentTime); g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.5);
+    o.start(); o.stop(a.currentTime+.5);
+  }catch(e){}
+}
+
+// ═══════════════ UI ═══════════════
+let activeTab="signals";
+const fmt = p => {
+  if(p==null) return "—";
+  const n=+p;
+  if(n>=10000) return n.toLocaleString("en-US",{maximumFractionDigits:1});
+  if(n>=100) return n.toFixed(2);
+  if(n>=1) return n.toFixed(4);
+  return n.toFixed(6);
+};
+const tC = t => t==="BULL"?"var(--up)":t==="BEAR"?"var(--dn)":"var(--mut2)";
+const tB = t => t==="BULL"?"rgba(0,212,160,.1)":t==="BEAR"?"rgba(255,77,109,.1)":"rgba(136,136,136,.08)";
+const setupFa = {PULLBACK_ZONE:"پولبک به FVG/OB", PULLBACK_EMA:"پولبک به EMA21", LIQ_GRAB:"لیکوییدیتی گرب", BREAKOUT:"شکست با حجم"};
+const statusFa = {PENDING:"⏳ منتظر ورود", ACTIVE:"▶ باز", TP1:"✓ TP1", TP2:"✓✓ TP2", TP3:"✓✓✓ TP3", SL:"✗ استاپ", EXPIRED:"منقضی", BE_AFTER_TP1:"سر‌به‌سر بعد TP1", WIN_TP2:"برد TP2"};
+
+function setTab(t){ activeTab=t;
+  document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on", b.dataset.t===t));
+  render();
+}
+function sigCard(s, showStatus){
+  const isL = s.dir==="LONG", c = isL?"var(--up)":"var(--dn)";
+  const hot = s.score>=78;
+  return `<div class="card ${isL?'long':'short'} ${hot?'hot':''}">
+    ${hot?`<div class="hotTag ${isL?'':'s'}">HOT ${s.score}</div>`:""}
+    <div class="crow">
+      <div class="row">
+        <div class="dirbox" style="background:${isL?'rgba(0,212,160,.13)':'rgba(255,77,109,.13)'};color:${c}">${isL?"↑":"↓"}</div>
+        <div>
+          <div class="row" style="gap:7px">
+            <span class="mono" style="font-weight:700;font-size:14px">${s.symbol.replace("USDT","")}</span>
+            <span class="badge ${isL?'b-up':'b-dn'}">${s.dir}</span>
+            <span class="badge ${s.entryType==='MARKET'?'b-warn':'b-mut'}">${s.entryType==="MARKET"?"مارکت":"لیمیت"}</span>
+            ${showStatus?`<span class="badge ${["SL"].includes(s.status)?'b-dn':["TP1","TP2","TP3","WIN_TP2"].includes(s.status)?'b-up':'b-mut'}">${statusFa[s.status]||s.status}</span>`:""}
+          </div>
+          <div class="small" style="margin-top:3px">${setupFa[s.setup]||s.setup} · RSI ${s.rsi?.toFixed(0)} · ADX ${s.adx?.toFixed(0)}${s.conf5===true?" · ✓5M":s.conf5===false?" · ✗5M":""}</div>
+        </div>
+      </div>
+      <div style="text-align:left">
+        <div class="mono" style="font-size:18px;font-weight:800;color:${s.score>=75?'var(--up)':s.score>=65?'var(--warn)':'var(--mut2)'}">${s.score}</div>
+        <div class="small" style="font-size:9px">SCORE</div>
+      </div>
+    </div>
+    <div class="lvl4">
+      <div class="lvl"><div class="l">ورود (${s.entryType})</div><div class="v mono">${fmt(s.entry)}</div></div>
+      <div class="lvl"><div class="l">استاپ −${s.slPct.toFixed(2)}٪</div><div class="v mono" style="color:var(--dn)">${fmt(s.sl)}</div></div>
+      <div class="lvl"><div class="l">TP1 (${CFG.tp1R}R)</div><div class="v mono" style="color:var(--up)">${fmt(s.tp1)}</div></div>
+      <div class="lvl"><div class="l">لوریج · ضرر</div><div class="v mono" style="color:${s.lossAtSL>=18?'var(--warn)':'#fff'}">${s.lev}x · ${s.lossAtSL}٪</div></div>
+    </div>
+    <div class="tfrow">
+      ${["4H","1H","15M"].map((tf,i)=>{const t=[s.t4,s.t1,s.t15][i];
+        return `<div class="tf" style="background:${tB(t)};color:${tC(t)};border-color:${tC(t)}33">${tf} ${t}</div>`;}).join("")}
+    </div>
+    <div class="meta mono">TP2 ${fmt(s.tp2)} · TP3 ${fmt(s.tp3)} · ${new Date(s.createdAt).toLocaleTimeString("fa-IR",{hour:"2-digit",minute:"2-digit"})}</div>
+  </div>`;
+}
+
+function render(){
+  const v = document.getElementById("view");
+  const j = getJournal();
+  const st = journalStats(j);
+  // نوار وضعیت بازار
+  const mb = document.getElementById("marketBar");
+  mb.innerHTML = `
+    <div class="mchip">USDT.D <b>${usdtDom.value? usdtDom.value.toFixed(2)+"٪":"—"}</b>${usdtDom.value&&usdtDom.prev? (usdtDom.value>usdtDom.prev?' <span style="color:var(--dn)">↑ ریسک‌گریزی</span>':usdtDom.value<usdtDom.prev?' <span style="color:var(--up)">↓ ریسک‌پذیری</span>':""):""}</div>
+    <div class="mchip">آخرین اسکن <b>${lastScan? lastScan.toLocaleTimeString("fa-IR",{hour:"2-digit",minute:"2-digit"}):"—"}</b></div>
+    <div class="mchip">نمادها <b>${CFG.symbols.length}</b></div>`;
+  // آمار
+  document.getElementById("statsRow").innerHTML = `
+    <div class="stat"><div class="v mono" style="color:${st.wr>=70?'var(--up)':st.done?'var(--warn)':'#fff'}">${st.done? st.wr.toFixed(0)+"٪":"—"}</div><div class="l">وین‌ریت لایو</div><div class="s">${st.wins} برد / ${st.losses} باخت</div></div>
+    <div class="stat"><div class="v mono" style="color:${st.pnl>=0?'var(--up)':'var(--dn)'}">${st.pnl>=0?'+':''}${st.pnl.toFixed(0)}٪</div><div class="l">برآیند کل</div><div class="s">با لوریج</div></div>
+    <div class="stat"><div class="v mono">${j.filter(s=>["PENDING","ACTIVE","TP1","TP2"].includes(s.status)).length}</div><div class="l">سیگنال باز</div><div class="s">از ${st.total} کل</div></div>`;
+  const hotN = j.filter(s=>s.status==="PENDING"&&s.score>=78).length;
+  document.getElementById("hotBadge").style.display = hotN?"inline-block":"none";
+
+  if(activeTab==="signals"){
+    const open = j.filter(s=>["PENDING","ACTIVE","TP1","TP2"].includes(s.status));
+    v.innerHTML = open.length
+      ? open.map(s=>sigCard(s,true)).join("")
+      : `<div class="empty"><div class="ic">📡</div><div>هنوز سیگنالی نیست</div><div class="small" style="margin-top:4px">اسکن خودکار هر ۳ دقیقه · فقط ستاپ هم‌جهت با روند ۴ساعته</div><button class="btn" style="margin-top:14px" onclick="manualScan()">اسکن الان</button></div>`;
+  }
+  if(activeTab==="results"){
+    const closed = j.filter(s=>!["PENDING","ACTIVE"].includes(s.status));
+    const rows = closed.slice(0,60).map(s=>{
+      const win = ["TP1","TP2","TP3","WIN_TP2","BE_AFTER_TP1"].includes(s.status);
+      return `<tr>
+        <td class="mono">${s.symbol.replace("USDT","")}</td>
+        <td style="color:${s.dir==='LONG'?'var(--up)':'var(--dn)'}">${s.dir}</td>
+        <td class="small">${setupFa[s.setup]||s.setup}</td>
+        <td>${s.score}</td>
+        <td style="color:${s.status==='SL'?'var(--dn)':win?'var(--up)':'var(--mut2)'}">${statusFa[s.status]||s.status}</td>
+        <td class="mono" style="color:${(s.pnlPct||0)>=0?'var(--up)':'var(--dn)'}">${s.pnlPct!=null? (s.pnlPct>0?'+':'')+s.pnlPct+'٪':'—'}</td>
+      </tr>`;
+    }).join("");
+    v.innerHTML = `
+      <div class="card">
+        <div class="crow" style="margin-bottom:8px">
+          <span class="small">نتایج سیگنال‌ها (سود/استاپ با احتساب لوریج)</span>
+          <button class="btn-dn" style="padding:5px 10px" onclick="if(confirm('پاک شود؟')){setJournal([]);render();}">پاک‌سازی</button>
+        </div>
+        ${closed.length? `<table><tr><th>نماد</th><th>جهت</th><th>ستاپ</th><th>امتیاز</th><th>نتیجه</th><th>سود/ضرر</th></tr>${rows}</table>`
+          : `<div class="empty"><div class="ic">📒</div><div>هنوز نتیجه‌ای ثبت نشده</div><div class="small" style="margin-top:4px">نتیجه هر سیگنال (TP/SL/منقضی) خودکار اینجا ثبت می‌شود</div></div>`}
+      </div>`;
+  }
+  if(activeTab==="watch"){
+    v.innerHTML = `<div id="watchList">${watchData.length? watchData.map(w=>`
+      <div class="card">
+        <div class="crow">
+          <div class="row"><span class="mono" style="font-weight:700">${w.symbol.replace("USDT","")}</span>
+            <span class="badge" style="background:${tB(w.bias)};color:${tC(w.bias)};border:1px solid ${tC(w.bias)}33">${w.bias}</span></div>
+          <div style="text-align:left">
+            <div class="mono" style="font-weight:600">${fmt(w.price)}</div>
+            <div class="small mono" style="color:${w.chg>=0?'var(--up)':'var(--dn)'}">${w.chg>=0?'+':''}${w.chg?.toFixed(2)}٪</div>
+          </div>
+        </div>
+        <div class="small" style="margin-top:6px">RSI <span style="color:${w.rsi>65?'var(--dn)':w.rsi<35?'var(--up)':'#aaa'}">${w.rsi?.toFixed(0)}</span> · ADX <span style="color:${w.adx>=40?'var(--up)':w.adx>=20?'#aaa':'var(--mut)'}">${w.adx?.toFixed(0)}</span>${w.adx<CFG.adxGate?' <span style="color:var(--warn)">رنج — معامله ممنوع</span>':''}</div>
+      </div>`).join("") : `<div class="empty"><div class="ic">👁</div><div>در حال بارگذاری واچ‌لیست…</div></div>`}</div>`;
+    refreshWatch();
+  }
+  if(activeTab==="backtest"){
+    const last = store_get("lastBacktest");
+    v.innerHTML = `
+      <div class="card">
+        <div class="small" style="margin-bottom:8px">بک‌تست روی ۱۵ روز اخیر — همان موتور سیگنال لایو</div>
+        <div class="row">
+          <input id="btSyms" placeholder="خالی = ۱۲ نماد اول (BTC ETH SOL ...)" style="flex:1">
+          <button class="btn" onclick="runBacktest()">اجرا</button>
+          <button class="btn-dn" onclick="btAbort=true" style="padding:7px 10px">توقف</button>
+        </div>
+      </div>
+      <div id="btOut">${last? `<div class="small" style="text-align:center;margin-bottom:8px">آخرین بک‌تست: ${new Date(last.ts).toLocaleString("fa-IR")}</div>`:""}</div>`;
+    if(last && last.res) renderBacktestResult(last.res);
+  }
+  if(activeTab==="settings"){
+    v.innerHTML = `
+      <div class="card">
+        ${[
+          ["minScore","حداقل امتیاز سیگنال (پیشنهاد ۶۰–۷۵)"],
+          ["adxGate","گیت ADX — زیر این = رنج"],
+          ["prePumpMaxPct","حداکثر حرکت ۲۰ کندل قبل (٪) — آنتی‌پامپ"],
+          ["volSpikeMult","ضریب اسپایک حجم"],
+          ["maxSlPct","حداکثر فاصله استاپ (٪)"],
+          ["maxLossPct","سقف ضرر با لوریج (٪)"],
+          ["maxLeverage","حداکثر لوریج آلت‌ها"],
+          ["maxLeverageBTC","حداکثر لوریج BTC"],
+          ["tp1R","TP1 (نسبت R)"]
+        ].map(([k,l])=>`<div class="setrow"><label>${l}</label><input type="number" step="any" style="width:90px" value="${CFG[k]}" onchange="CFG['${k}']=+this.value;store_set('cfg',CFG)"></div>`).join("")}
+        <div class="setrow"><label>نمادها (با کاما)</label></div>
+        <textarea id="symBox" style="width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:#fff;padding:8px;font-size:11px;font-family:monospace;min-height:70px">${CFG.symbols.join(",")}</textarea>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" onclick="CFG.symbols=document.getElementById('symBox').value.toUpperCase().split(/[,\\s]+/).filter(Boolean).map(s=>s.endsWith('USDT')?s:s+'USDT');store_set('cfg',CFG);render()">ذخیره نمادها</button>
+          <button class="btn-dn" onclick="if(confirm('تنظیمات پیش‌فرض شود؟')){CFG=Object.assign({},CFG_DEFAULT);store_set('cfg',CFG);render();}">پیش‌فرض</button>
+          <button class="btn" onclick="Notification.requestPermission().then(()=>alert('وضعیت: '+Notification.permission))">فعال‌سازی نوتیف</button>
+        </div>
+      </div>`;
+  }
+}
+
+async function refreshWatch(){
+  const syms = CFG.symbols.slice(0,10);
+  const results = await Promise.allSettled(syms.map(async sym=>{
+    const [tk,c1h] = await Promise.all([fetchTicker24(sym), fetchCandles(sym,"15m",450)]); // برای ۱ساعته کافی است
+    const a1h = analyzeTF(resample(c1h.filter(c=>c.closed!==false),1));
+    return {symbol:sym, price:tk?.price, chg:tk?.chg, bias:a1h?.trend||"RANGE", rsi:a1h?.rsi, adx:a1h?.adx};
+  }));
+  watchData = results.filter(r=>r.status==="fulfilled"&&r.value).map(r=>r.value);
+  if(activeTab==="watch") render();
+}
+
+// ═══════════════ LOOP ═══════════════
+setInterval(()=>{
+  const rem = Math.max(0, nextRefresh-Date.now());
+  const m=Math.floor(rem/60000), s=Math.floor(rem%60000/1000);
+  document.getElementById("countdown").textContent = `${m}:${String(s).padStart(2,"0")}`;
+}, 500);
+setInterval(()=>{ if(!scanning && Date.now()>=nextRefresh) scan(); }, 5000);
+setInterval(()=>{ trackOutcomes().then(()=>{ if(activeTab!=="backtest") render(); }); }, 60*1000);
+render();
+scan();
+</script>
+</body>
+</html>
