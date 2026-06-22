@@ -48,7 +48,7 @@ PROJECT_DIR = Path(__file__).resolve().parent
 REPORTS_DIR = PROJECT_DIR / "reports"
 STATE_DIR = PROJECT_DIR / "state"
 LOGS_DIR = PROJECT_DIR / "logs"
-DASHBOARD_FILE = PROJECT_DIR / "04_dashboard_panel_20260610_002822_IRST.html"
+DASHBOARD_FILE = PROJECT_DIR / "Future signal"
 STATE_FILE = STATE_DIR / "hamid_signal_state.json"
 DB_FILE = STATE_DIR / "hamid_paper_trading.sqlite3"
 
@@ -128,6 +128,9 @@ class Settings:
     max_notional_per_trade_pct: float = float(os.getenv("MAX_NOTIONAL_PER_TRADE_PCT", "45"))
     max_leverage: float = float(os.getenv("MAX_LEVERAGE", "3"))
     min_signal_score: float = float(os.getenv("MIN_SIGNAL_SCORE", "74"))
+    watch_score: float = float(os.getenv("WATCH_SCORE", "62"))
+    ready_score: float = float(os.getenv("READY_SCORE", "70"))
+    min_confirmation_score: float = float(os.getenv("MIN_CONFIRMATION_SCORE", "65"))
     strong_signal_score: float = float(os.getenv("STRONG_SIGNAL_SCORE", "82"))
     strong_flip_score: float = float(os.getenv("STRONG_FLIP_SCORE", "86"))
     flip_cooldown_minutes: int = int(os.getenv("FLIP_COOLDOWN_MINUTES", "30"))
@@ -160,6 +163,7 @@ class StateStore:
             "last_error": None,
             "last_report": None,
             "signals": [],
+            "watchlist": [],
             "universe": [],
             "market_context": {},
             "paper": {
@@ -175,6 +179,8 @@ class StateStore:
                 "stats": {},
             },
             "events": [],
+            "feedback": [],
+            "analysis_cycle": {},
             "active_signal_locks": {},
         }
 
@@ -726,6 +732,87 @@ class SignalEngine:
             return direct
         return None
 
+    def setup_playbook(self, direction: str, m5: Dict[str, Any], m15: Dict[str, Any], m1h: Dict[str, Any], current: float) -> Dict[str, Any]:
+        """Translate discretionary playbook ideas into explicit machine-checkable setup states."""
+        pullback_ref = m15["ema21"]
+        near_pullback = abs(current - pullback_ref) / current <= 0.008 if current else False
+        breakout_long = current >= m15["recent_high"] * 0.998
+        breakout_short = current <= m15["recent_low"] * 1.002
+        volume_ok = max(m5["volume_z"], m15["volume_z"]) >= 0.8
+        momentum_ok = (direction == "LONG" and m5["macd_hist"] > 0) or (direction == "SHORT" and m5["macd_hist"] < 0)
+        confirmation_ok = m5["direction"] == direction and volume_ok and momentum_ok
+
+        if direction == "LONG" and breakout_long:
+            name = "BREAKOUT_CONTINUATION"
+        elif direction == "SHORT" and breakout_short:
+            name = "BREAKOUT_CONTINUATION"
+        elif near_pullback:
+            name = "EMA21_PULLBACK"
+        else:
+            name = "MOMENTUM_WATCH"
+
+        mandatory_checks = {
+            "higher_tf_direction": m1h["direction"] == direction,
+            "setup_tf_direction": m15["direction"] == direction,
+            "entry_tf_confirmation": confirmation_ok,
+            "not_overextended": 10 < m15["bb_position"] < 90,
+            "trend_strength": m15["adx"] >= 14 or m5["adx"] >= 18,
+            "volume_expansion": volume_ok,
+        }
+        blockers = [k for k, v in mandatory_checks.items() if not v]
+        if not blockers and name != "MOMENTUM_WATCH":
+            lifecycle = "VALID_ENTRY"
+        elif len(blockers) <= 2 and (near_pullback or breakout_long or breakout_short):
+            lifecycle = "WAITING_CONFIRMATION"
+        elif direction in ("LONG", "SHORT") and (m15["direction"] == direction or m1h["direction"] == direction):
+            lifecycle = "APPROACHING_ENTRY_ZONE"
+        else:
+            lifecycle = "NO_SETUP"
+        return {
+            "name": name,
+            "lifecycle": lifecycle,
+            "entry_zone": {
+                "low": round_price(min(current, pullback_ref) * 0.998),
+                "high": round_price(max(current, pullback_ref) * 1.002),
+                "reference": "15m EMA21 / breakout structure",
+            },
+            "mandatory_checks": mandatory_checks,
+            "blockers": blockers,
+        }
+
+    def score_breakdown(
+        self,
+        direction: str,
+        score: float,
+        rr: float,
+        tf_agreement: int,
+        ticker: Dict[str, Any],
+        funding_penalty: float,
+        context_penalty: float,
+        m5: Dict[str, Any],
+        m15: Dict[str, Any],
+        m1h: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        trend = 20 if tf_agreement >= 3 else 14 if tf_agreement == 2 else 6
+        entry = 20 if m5["direction"] == direction and m15["direction"] == direction else 12 if m15["direction"] == direction else 5
+        momentum = 15 if ((direction == "LONG" and m15["macd_hist"] > 0) or (direction == "SHORT" and m15["macd_hist"] < 0)) else 8
+        volume = 15 if max(m5["volume_z"], m15["volume_z"]) >= 1.3 else 9 if max(m5["volume_z"], m15["volume_z"]) >= 0.5 else 3
+        risk = 15 if rr >= 2 else 10 if rr >= self.settings.min_rr else 4
+        market = 10 if not context_penalty else 6
+        timing = 5 if 15 < m15["bb_position"] < 85 else 2
+        total = clamp(trend + entry + momentum + volume + risk + market + timing - funding_penalty, 0, 100)
+        return {
+            "trend_alignment": trend,
+            "entry_zone_quality": entry,
+            "momentum": momentum,
+            "volume_confirmation": volume,
+            "risk_reward": risk,
+            "market_context": market,
+            "timing": timing,
+            "computed_total": round(total, 2),
+            "engine_score": round(score, 2),
+        }
+
     def analyze_symbol(
         self,
         asset: Dict[str, Any],
@@ -801,6 +888,10 @@ class SignalEngine:
             tp2 = current
 
         rr = 2.1 if stop_distance > 0 else 0.0
+        playbook = self.setup_playbook(direction, m5, m15, m1h, current)
+        scorecard = self.score_breakdown(
+            direction, score, rr, tf_agreement, ticker, funding_penalty, context_penalty, m5, m15, m1h
+        )
         all_reasons = []
         for m in (m5, m15, m1h):
             all_reasons.extend(m["reasons"])
@@ -819,7 +910,7 @@ class SignalEngine:
             100,
         )
 
-        status = "WATCH"
+        status = playbook["lifecycle"]
         enough_confirmation = tf_agreement >= 3 or (tf_agreement >= 2 and score >= self.settings.strong_signal_score)
         trend_quality_ok = (m15["adx"] >= 16 or m5["adx"] >= 18) and m15["adx"] >= 12
         if (
@@ -828,8 +919,13 @@ class SignalEngine:
             and enough_confirmation
             and trend_quality_ok
             and rr >= self.settings.min_rr
+            and not playbook["blockers"]
         ):
             status = "SIGNAL"
+        elif direction in ("LONG", "SHORT") and score >= self.settings.ready_score and rr >= self.settings.min_rr:
+            status = "WAITING_CONFIRMATION"
+        elif direction in ("LONG", "SHORT") and score >= self.settings.watch_score:
+            status = "WATCHING"
         if safe_float(ticker.get("quoteVolume")) < self.settings.min_quote_volume_usd:
             status = "LOW_LIQUIDITY"
         if m15["adx"] < 14 and m5["adx"] < 14:
@@ -858,6 +954,19 @@ class SignalEngine:
             "market_cap": safe_float(asset.get("market_cap")),
             "top100_volume_24h": safe_float(asset.get("volume_24h")),
             "pre_pump_score": round(pre_pump_score, 2),
+            "setup": playbook["name"],
+            "lifecycle": status,
+            "entry_zone": playbook["entry_zone"],
+            "mandatory_checks": playbook["mandatory_checks"],
+            "blockers": playbook["blockers"],
+            "scorecard": scorecard,
+            "decision_trace": [
+                "1 data_loaded",
+                f"2 market_regime={market_context.get('risk_mode', 'UNKNOWN')}",
+                f"3 setup={playbook['name']}",
+                f"4 lifecycle={status}",
+                f"5 blockers={','.join(playbook['blockers']) or 'none'}",
+            ],
             "risk_mode": market_context.get("risk_mode", "UNKNOWN"),
             "crypto_bubbles_overlay": crypto_bubbles or {},
             "metrics": {"5m": m5, "15m": m15, "1h": m1h},
@@ -1312,6 +1421,54 @@ class SignalService:
         self.telegram.send("Paper trading stopped")
         return self.store.snapshot()["paper"]
 
+    def record_feedback(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        item = {
+            "time": now_iso(),
+            "symbol": str(body.get("symbol", "")).upper(),
+            "verdict": str(body.get("verdict", "review")),
+            "note": str(body.get("note", ""))[:1000],
+            "signal": body.get("signal", {}),
+        }
+        with self.store.lock:
+            feedback = self.store.state.setdefault("feedback", [])
+            feedback.insert(0, item)
+            del feedback[500:]
+            self.store.save()
+        self.store.event("INFO", "Signal feedback recorded", {"symbol": item["symbol"], "verdict": item["verdict"]})
+        return {"ok": True, "feedback": item}
+
+    def playbook(self) -> Dict[str, Any]:
+        return {
+            "cycle": [
+                "load_data",
+                "detect_market_regime",
+                "score_multi_timeframe_setup",
+                "classify_lifecycle",
+                "validate_risk_reward",
+                "emit_signal_or_wait",
+                "track_outcome",
+                "record_feedback",
+            ],
+            "statuses": {
+                "NO_SETUP": "No actionable structure.",
+                "WATCHING": "Setup exists but not near/confirmed enough.",
+                "APPROACHING_ENTRY_ZONE": "Price is moving toward a planned zone.",
+                "WAITING_CONFIRMATION": "Zone is relevant; wait for 5m/15m confirmation.",
+                "VALID_ENTRY": "All playbook checks passed before final signal filters.",
+                "SIGNAL": "Tradable paper-first signal after risk and persistence filters.",
+                "LOW_LIQUIDITY": "Rejected by volume gate.",
+                "RANGE_FILTERED": "Rejected by ADX/range gate.",
+            },
+            "mandatory_checks": [
+                "higher_tf_direction",
+                "setup_tf_direction",
+                "entry_tf_confirmation",
+                "not_overextended",
+                "trend_strength",
+                "volume_expansion",
+            ],
+        }
+
     def run_scan(self, source: str = "manual") -> Dict[str, Any]:
         if not self.scan_lock.acquire(blocking=False):
             return {"status": "BUSY", "message": "scan already running"}
@@ -1440,6 +1597,12 @@ class SignalService:
 
             rows.sort(key=lambda r: (int(r.get("rank") or 999), str(r.get("asset_symbol"))))
             signals = [r for r in rows if r.get("status") == "SIGNAL"]
+            watchlist = [
+                r
+                for r in rows
+                if r.get("status") in ("WATCHING", "APPROACHING_ENTRY_ZONE", "WAITING_CONFIRMATION", "VALID_ENTRY")
+            ]
+            watchlist.sort(key=lambda r: (safe_float(r.get("score")), safe_float(r.get("quote_volume"))), reverse=True)
             signals.sort(key=lambda r: (safe_float(r.get("score")), safe_float(r.get("quote_volume"))), reverse=True)
             self.broker.open_from_signals(signals)
 
@@ -1451,8 +1614,18 @@ class SignalService:
                 self.store.state["last_error"] = None
                 self.store.state["last_report"] = report
                 self.store.state["signals"] = signals[:40]
+                self.store.state["watchlist"] = watchlist[:80]
                 self.store.state["universe"] = rows
                 self.store.state["market_context"] = market_context
+                self.store.state["analysis_cycle"] = {
+                    "last_completed_at": now_iso(),
+                    "source": source,
+                    "rows": len(rows),
+                    "signals": len(signals),
+                    "watchlist": len(watchlist),
+                    "loop_seconds": self.settings.scan_interval_seconds,
+                    "steps": self.playbook()["cycle"],
+                }
                 self.store.state["paper"] = paper
                 self.store.save()
 
@@ -1511,6 +1684,11 @@ class SignalService:
             "market_cap",
             "top100_volume_24h",
             "pre_pump_score",
+            "setup",
+            "lifecycle",
+            "entry_zone",
+            "blockers",
+            "scorecard",
             "risk_mode",
             "persistence",
             "blocked_reason",
@@ -1523,6 +1701,9 @@ class SignalService:
             for row in rows:
                 item = dict(row)
                 item["reasons"] = " | ".join(row.get("reasons") or [])
+                item["blockers"] = " | ".join(row.get("blockers") or [])
+                item["entry_zone"] = json.dumps(row.get("entry_zone") or {}, ensure_ascii=False)
+                item["scorecard"] = json.dumps(row.get("scorecard") or {}, ensure_ascii=False)
                 writer.writerow(item)
         payload = {
             "generated_at": now_iso(),
@@ -1614,8 +1795,17 @@ class AppHandler(BaseHTTPRequestHandler):
         if self.path == "/api/signals":
             self._send_json(SERVICE.store.snapshot().get("signals", []))
             return
+        if self.path == "/api/watchlist":
+            self._send_json(SERVICE.store.snapshot().get("watchlist", []))
+            return
         if self.path == "/api/universe":
             self._send_json(SERVICE.store.snapshot().get("universe", []))
+            return
+        if self.path == "/api/playbook":
+            self._send_json(SERVICE.playbook())
+            return
+        if self.path == "/api/feedback":
+            self._send_json(SERVICE.store.snapshot().get("feedback", []))
             return
         if self.path == "/api/events":
             self._send_json(SERVICE.store.snapshot().get("events", []))
@@ -1640,6 +1830,9 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/stop-paper":
             self._send_json(SERVICE.stop_paper())
+            return
+        if self.path == "/api/feedback":
+            self._send_json(SERVICE.record_feedback(body))
             return
         self._send_json({"error": "not found"}, status=404)
 
