@@ -3,7 +3,7 @@
 Hamid Crypto Futures Signal Panel v3.0
 
 Production-oriented, paper-first futures signal scanner for the top 100 crypto
-assets. It connects to Binance USD-M Futures public market data, uses
+assets. It connects to Bitunix USDT-M Futures public market data, uses
 CoinMarketCap when an API key is provided, falls back to CoinGecko, and sends
 Telegram alerts when Telegram environment variables are configured.
 
@@ -52,9 +52,14 @@ DASHBOARD_FILE = PROJECT_DIR / "Future signal"
 STATE_FILE = STATE_DIR / "hamid_signal_state.json"
 DB_FILE = STATE_DIR / "hamid_paper_trading.sqlite3"
 
-BINANCE_FAPI_BASE = os.getenv("BINANCE_FAPI_BASE_URL", "https://fapi.binance.com").rstrip("/")
+BITUNIX_FAPI_BASE = os.getenv("BITUNIX_FAPI_BASE_URL", "https://fapi.bitunix.com").rstrip("/")
 COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 CMC_BASE = "https://pro-api.coinmarketcap.com"
+DEFAULT_BITUNIX_UNIVERSE = [
+    "BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX", "LINK", "DOT",
+    "LTC", "UNI", "ATOM", "NEAR", "APT", "ARB", "OP", "INJ", "SUI", "TIA",
+    "SEI", "WIF", "FIL", "AAVE", "CRO",
+]
 
 
 def now_utc() -> datetime:
@@ -119,7 +124,7 @@ class Settings:
     http_port: int = int(os.getenv("HAMID_HTTP_PORT", "8765"))
     scan_interval_seconds: int = int(os.getenv("SCAN_INTERVAL_SECONDS", "300"))
     kline_limit: int = int(os.getenv("KLINE_LIMIT", "180"))
-    max_workers: int = int(os.getenv("MAX_WORKERS", "7"))
+    max_workers: int = int(os.getenv("MAX_WORKERS", "3"))
     initial_equity: float = float(os.getenv("INITIAL_EQUITY_USDT", "3000"))
     risk_per_trade_pct: float = float(os.getenv("RISK_PER_TRADE_PCT", "0.35"))
     max_daily_loss_pct: float = float(os.getenv("MAX_DAILY_LOSS_PCT", "3.0"))
@@ -127,15 +132,16 @@ class Settings:
     max_open_positions: int = int(os.getenv("MAX_OPEN_POSITIONS", "8"))
     max_notional_per_trade_pct: float = float(os.getenv("MAX_NOTIONAL_PER_TRADE_PCT", "45"))
     max_leverage: float = float(os.getenv("MAX_LEVERAGE", "3"))
-    min_signal_score: float = float(os.getenv("MIN_SIGNAL_SCORE", "74"))
+    min_signal_score: float = float(os.getenv("MIN_SIGNAL_SCORE", "65"))
     watch_score: float = float(os.getenv("WATCH_SCORE", "62"))
     ready_score: float = float(os.getenv("READY_SCORE", "70"))
     min_confirmation_score: float = float(os.getenv("MIN_CONFIRMATION_SCORE", "65"))
     strong_signal_score: float = float(os.getenv("STRONG_SIGNAL_SCORE", "82"))
     strong_flip_score: float = float(os.getenv("STRONG_FLIP_SCORE", "86"))
     flip_cooldown_minutes: int = int(os.getenv("FLIP_COOLDOWN_MINUTES", "30"))
-    min_quote_volume_usd: float = float(os.getenv("MIN_QUOTE_VOLUME_USD", "25000000"))
-    min_rr: float = float(os.getenv("MIN_RR", "1.8"))
+    min_quote_volume_usd: float = float(os.getenv("MIN_QUOTE_VOLUME_USD", "0"))
+    min_rr: float = float(os.getenv("MIN_RR", "1.2"))
+    strict_filters: bool = os.getenv("STRICT_FILTERS", "0").strip().lower() in {"1", "true", "yes", "on"}
     paper_target_hours: float = float(os.getenv("PAPER_TARGET_HOURS", "8"))
     cmc_api_key: str = os.getenv("CMC_API_KEY", "").strip()
     coingecko_api_key: str = os.getenv("COINGECKO_API_KEY", "").strip()
@@ -308,7 +314,7 @@ class ApiClient:
             )
         return result[:100]
 
-    def fetch_binance_volume_universe(self) -> List[Dict[str, Any]]:
+    def fetch_bitunix_volume_universe(self) -> List[Dict[str, Any]]:
         tickers = self.fetch_24h_tickers()
         usdt = [
             t
@@ -329,7 +335,7 @@ class ApiClient:
                     "percent_change_1h": 0.0,
                     "percent_change_24h": safe_float(row.get("priceChangePercent")),
                     "percent_change_7d": 0.0,
-                    "source": "Binance volume fallback",
+                    "source": "Bitunix volume fallback",
                 }
             )
         return result
@@ -343,28 +349,67 @@ class ApiClient:
         try:
             return self.fetch_coingecko_top100()
         except Exception as exc:
-            self.store.event("WARN", "CoinGecko top100 failed; falling back to Binance volume", {"error": str(exc)})
-            return self.fetch_binance_volume_universe()
+            self.store.event("WARN", "CoinGecko top100 failed; falling back to Bitunix volume", {"error": str(exc)})
+            try:
+                return self.fetch_bitunix_volume_universe()
+            except Exception as bitunix_exc:
+                self.store.event(
+                    "WARN",
+                    "Bitunix volume universe failed; falling back to built-in Bitunix majors",
+                    {"error": str(bitunix_exc)},
+                )
+                return [
+                    {
+                        "rank": idx,
+                        "symbol": symbol,
+                        "name": symbol,
+                        "market_cap": 0.0,
+                        "volume_24h": 0.0,
+                        "percent_change_1h": 0.0,
+                        "percent_change_24h": 0.0,
+                        "percent_change_7d": 0.0,
+                        "source": "Built-in Bitunix majors fallback",
+                    }
+                    for idx, symbol in enumerate(DEFAULT_BITUNIX_UNIVERSE, 1)
+                ]
 
     def fetch_exchange_info(self) -> Dict[str, Any]:
         if self.exchange_info_cache and time.time() - self.exchange_info_loaded_at < 3600:
             return self.exchange_info_cache
-        url = f"{BINANCE_FAPI_BASE}/fapi/v1/exchangeInfo"
+        url = f"{BITUNIX_FAPI_BASE}/api/v1/futures/market/trading_pairs"
         payload = self.request_json(url)
         self.exchange_info_cache = payload
         self.exchange_info_loaded_at = time.time()
         return payload
 
     def fetch_24h_tickers(self) -> Dict[str, Dict[str, Any]]:
-        url = f"{BINANCE_FAPI_BASE}/fapi/v1/ticker/24hr"
+        url = f"{BITUNIX_FAPI_BASE}/api/v1/futures/market/tickers"
         payload = self.request_json(url, timeout=24)
-        return {row.get("symbol"): row for row in payload if isinstance(row, dict)}
+        rows = payload.get("data", payload) if isinstance(payload, dict) else payload
+        tickers: Dict[str, Dict[str, Any]] = {}
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            last = safe_float(row.get("lastPrice") or row.get("last") or row.get("markPrice"))
+            opened = safe_float(row.get("open"), last)
+            normalized = dict(row)
+            normalized["symbol"] = str(row.get("symbol", "")).upper()
+            normalized["lastPrice"] = last
+            normalized["quoteVolume"] = safe_float(row.get("quoteVol"))
+            normalized["volume"] = safe_float(row.get("baseVol"))
+            normalized["priceChangePercent"] = pct(last, opened) if opened else 0.0
+            tickers[normalized["symbol"]] = normalized
+        return tickers
 
     def fetch_funding_map(self) -> Dict[str, float]:
         try:
-            url = f"{BINANCE_FAPI_BASE}/fapi/v1/premiumIndex"
+            url = f"{BITUNIX_FAPI_BASE}/api/v1/futures/market/funding_rate/batch"
             payload = self.request_json(url, timeout=20)
-            return {row.get("symbol"): safe_float(row.get("lastFundingRate")) for row in payload if isinstance(row, dict)}
+            rows = payload.get("data", payload) if isinstance(payload, dict) else payload
+            return {
+                str(row.get("symbol", "")).upper(): safe_float(row.get("fundingRate"))
+                for row in rows if isinstance(row, dict)
+            }
         except Exception as exc:
             self.store.event("WARN", "Funding map failed", {"error": str(exc)})
             return {}
@@ -410,26 +455,31 @@ class ApiClient:
             return {}
 
     def fetch_klines(self, symbol: str, interval: str, limit: int) -> List[Dict[str, float]]:
-        params = urllib.parse.urlencode({"symbol": symbol, "interval": interval, "limit": limit})
-        url = f"{BINANCE_FAPI_BASE}/fapi/v1/klines?{params}"
+        params = urllib.parse.urlencode({"symbol": symbol, "interval": interval, "limit": min(limit, 200), "type": "LAST_PRICE"})
+        url = f"{BITUNIX_FAPI_BASE}/api/v1/futures/market/kline?{params}"
         payload = self.request_json(url, timeout=20)
+        rows = payload.get("data", payload) if isinstance(payload, dict) else payload
         candles = []
-        for row in payload:
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            open_time = int(safe_float(row.get("time")))
             candles.append(
                 {
-                    "open_time": int(row[0]),
-                    "open": safe_float(row[1]),
-                    "high": safe_float(row[2]),
-                    "low": safe_float(row[3]),
-                    "close": safe_float(row[4]),
-                    "volume": safe_float(row[5]),
-                    "close_time": int(row[6]),
-                    "quote_volume": safe_float(row[7]),
-                    "trades": safe_float(row[8]),
-                    "taker_buy_base": safe_float(row[9]),
-                    "taker_buy_quote": safe_float(row[10]),
+                    "open_time": open_time,
+                    "open": safe_float(row.get("open")),
+                    "high": safe_float(row.get("high")),
+                    "low": safe_float(row.get("low")),
+                    "close": safe_float(row.get("close")),
+                    "volume": safe_float(row.get("baseVol")),
+                    "close_time": open_time,
+                    "quote_volume": safe_float(row.get("quoteVol")),
+                    "trades": 0.0,
+                    "taker_buy_base": 0.0,
+                    "taker_buy_quote": 0.0,
                 }
             )
+        candles.sort(key=lambda item: item["open_time"])
         return candles
 
 
@@ -705,15 +755,18 @@ class SignalEngine:
 
     def build_symbol_map(self, exchange_info: Dict[str, Any]) -> Dict[str, str]:
         direct: Dict[str, str] = {}
-        for row in exchange_info.get("symbols", []):
-            if row.get("contractType") != "PERPETUAL":
+        rows = exchange_info.get("data", exchange_info.get("symbols", [])) if isinstance(exchange_info, dict) else []
+        for row in rows:
+            if not isinstance(row, dict):
                 continue
-            if row.get("status") != "TRADING":
+            if row.get("symbolStatus") not in (None, "OPEN"):
                 continue
-            if row.get("quoteAsset") != "USDT":
+            if row.get("isApiSupported") is False:
+                continue
+            if str(row.get("quote", "USDT")).upper() != "USDT":
                 continue
             symbol = row.get("symbol")
-            base = row.get("baseAsset")
+            base = row.get("base") or str(symbol or "").replace("USDT", "")
             if symbol and base:
                 direct[str(base).upper()] = str(symbol).upper()
                 if str(symbol).upper().endswith("USDT"):
@@ -926,9 +979,9 @@ class SignalEngine:
             status = "WAITING_CONFIRMATION"
         elif direction in ("LONG", "SHORT") and score >= self.settings.watch_score:
             status = "WATCHING"
-        if safe_float(ticker.get("quoteVolume")) < self.settings.min_quote_volume_usd:
+        if self.settings.strict_filters and safe_float(ticker.get("quoteVolume")) < self.settings.min_quote_volume_usd:
             status = "LOW_LIQUIDITY"
-        if m15["adx"] < 14 and m5["adx"] < 14:
+        if self.settings.strict_filters and m15["adx"] < 14 and m5["adx"] < 14:
             status = "RANGE_FILTERED"
 
         result = {
@@ -1494,7 +1547,7 @@ class SignalService:
                             "asset_name": asset.get("name"),
                             "universe_source": asset.get("source"),
                             "binance_symbol": "",
-                            "status": "BINANCE_UNREACHABLE",
+                            "status": "BITUNIX_UNREACHABLE",
                             "direction": "NONE",
                             "score": 0,
                             "grade": "NONE",
@@ -1512,7 +1565,7 @@ class SignalService:
                             "pre_pump_score": 0,
                             "risk_mode": market_context.get("risk_mode", "UNKNOWN"),
                             "error": str(exc),
-                            "reasons": ["Top 100 source is real, but Binance Futures endpoint is unreachable from this machine/network."],
+                            "reasons": ["Top 100 source is real, but Bitunix Futures endpoint is unreachable from this machine/network."],
                         }
                     )
                 report = self.write_reports(rows, market_context, source, started)
@@ -1525,7 +1578,7 @@ class SignalService:
                     self.store.state["universe"] = rows
                     self.store.state["market_context"] = market_context
                     self.store.save()
-                self.store.event("ERROR", "Binance Futures unreachable; limited Top 100 report written", {"error": str(exc), "report": report})
+                self.store.event("ERROR", "Bitunix Futures unreachable; limited Top 100 report written", {"error": str(exc), "report": report})
                 return {"status": "DATA_SOURCE_LIMITED", "signals": 0, "report": report, "elapsed_seconds": round(time.time() - started, 2), "error": str(exc)}
             self.broker.update_positions(tickers)
 
@@ -1541,7 +1594,7 @@ class SignalService:
                         "asset_name": asset.get("name"),
                         "universe_source": asset.get("source"),
                         "binance_symbol": symbol or "",
-                        "status": "NOT_ON_BINANCE_USDM_FUTURES",
+                        "status": "NOT_ON_BITUNIX_USDM_FUTURES",
                         "direction": "NONE",
                         "score": 0,
                         "grade": "NONE",
@@ -1564,7 +1617,7 @@ class SignalService:
                         rows.append(base_row)
                         continue
                     ticker = tickers[symbol]
-                    if safe_float(ticker.get("quoteVolume")) < self.settings.min_quote_volume_usd:
+                    if self.settings.strict_filters and safe_float(ticker.get("quoteVolume")) < self.settings.min_quote_volume_usd:
                         base_row.update(
                             {
                                 "status": "LOW_LIQUIDITY",
@@ -1788,6 +1841,8 @@ class AppHandler(BaseHTTPRequestHandler):
                         "risk_per_trade_pct": SERVICE.settings.risk_per_trade_pct,
                         "max_daily_loss_pct": SERVICE.settings.max_daily_loss_pct,
                         "max_open_positions": SERVICE.settings.max_open_positions,
+                        "strict_filters": SERVICE.settings.strict_filters,
+                        "exchange": "Bitunix Futures",
                     },
                 }
             )
