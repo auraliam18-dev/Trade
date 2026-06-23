@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HAMID SIGNAL AGENT — SMC Pullback Engine</title>
+<title>HAMID BITUNIX SIGNAL AGENT — HTML/iPad</title>
 <style>
   :root{
     --bg:#080b12; --panel:#0f1117; --panel2:#1a1d26; --line:#1e2130;
@@ -80,7 +80,7 @@
   <div class="hrow">
     <div class="row">
       <div class="dot" id="statusDot"></div>
-      <span class="title">HAMID AGENT <span style="color:var(--up)">v2</span></span>
+      <span class="title">HAMID BITUNIX <span style="color:var(--up)">HTML</span></span>
       <span class="badge b-up" id="hotBadge" style="display:none">HOT</span>
     </div>
     <div class="row">
@@ -105,7 +105,7 @@
 </div>
 
 <div id="footer">
-  <span>SMC Pullback · ADX Gate · Anti-Pump 20c · 4H→5M</span>
+  <span>Bitunix Futures · Playbook Loop · Watch/Confirm/Signal · iPad HTML</span>
   <span>حمید | Signal Agent</span>
 </div>
 
@@ -115,8 +115,8 @@
 const CFG_DEFAULT = {
   symbols: ["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","XRPUSDT","DOGEUSDT","ADAUSDT","AVAXUSDT","LINKUSDT","DOTUSDT","LTCUSDT","UNIUSDT","ATOMUSDT","NEARUSDT","APTUSDT","ARBUSDT","OPUSDT","INJUSDT","SUIUSDT","TIAUSDT","SEIUSDT","WIFUSDT","FILUSDT","AAVEUSDT","CROUSDT"],
   refreshMs: 3*60*1000,          // اسکن هر ۳ دقیقه
-  minScore: 60,                  // حداقل امتیاز کانفلوئنس
-  adxGate: 20,                   // زیر این مقدار = بازار رنج = بدون معامله (قانون حمید)
+  minScore: 1,                  // حداقل امتیاز کانفلوئنس
+  adxGate: 0,                   // زیر این مقدار = بازار رنج = بدون معامله (قانون حمید)
   adxStrong: 40,
   volSpikeMult: 2.0,             // حجم اسپایک = ۲ برابر میانگین ۲۰ کندل
   prePumpLookback: 20,           // بررسی ۲۰ کندل قبل
@@ -129,7 +129,7 @@ const CFG_DEFAULT = {
   limitZoneTolerance: 0.002,     // اگر قیمت در ۰.۲٪ ناحیه باشد → MARKET
   entryValidityCandles: 16,      // اعتبار سفارش لیمیت: ۱۶ کندل ۱۵دقیقه = ۴ ساعت
   cooldownCandles: 24,           // فاصله بین دو سیگنال روی یک نماد
-  maxSignalsPerScan: 6,
+  maxSignalsPerScan: 999,
   rsiLongMax: 68, rsiShortMin: 32,
   useUsdtDominance: true
 };
@@ -143,8 +143,8 @@ function store_get(k){ try{ if(__lsOK){ const v = localStorage.getItem("hsa_"+k)
 function store_set(k,v){ __mem[k]=v; if(__lsOK){ try{ localStorage.setItem("hsa_"+k, JSON.stringify(v)); }catch(e){} } }
 CFG = Object.assign({}, CFG_DEFAULT, store_get("cfg") || {});
 
-// ═══════════════ DATA LAYER (Binance Futures) ═══════════════
-const BASES = ["https://fapi.binance.com","https://fapi.binancefuture.com"];
+// ═══════════════ DATA LAYER (Bitunix Futures) ═══════════════
+const BASES = ["https://fapi.bitunix.com"];
 let BASE = BASES[0];
 const cache = new Map();
 
@@ -155,25 +155,27 @@ async function bfetch(path){
       if(r.ok){ BASE=b; return await r.json(); }
     }catch(e){}
   }
-  throw new Error("Binance unreachable");
+  throw new Error("Bitunix unreachable");
 }
 async function fetchCandles(symbol, interval, limit){
   const key = symbol+":"+interval+":"+limit;
   const ttl = {"5m":45000,"15m":90000}[interval]||120000;
   const c = cache.get(key);
   if(c && Date.now()-c.ts < ttl) return c.data;
-  const raw = await bfetch(`/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
-  const data = raw.map(k=>({t:k[0], o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5], closed:k[6]<Date.now()}));
+  const raw = await bfetch(`/api/v1/futures/market/kline?symbol=${symbol}&interval=${interval}&limit=${Math.min(limit,200)}&type=LAST_PRICE`);
+  const rows = Array.isArray(raw) ? raw : (raw.data || []);
+  const data = rows.map(k=>({t:+k.time, o:+k.open, h:+k.high, l:+k.low, c:+k.close, v:+(k.baseVol||k.quoteVol||0), closed:+k.time < Date.now()})).sort((a,b)=>a.t-b.t);
   cache.set(key,{data, ts:Date.now()});
   return data;
 }
 async function fetchTicker24(symbol){
-  try{ const d = await bfetch(`/fapi/v1/ticker/24hr?symbol=${symbol}`);
-    return {price:+d.lastPrice, chg:+d.priceChangePercent, vol:+d.quoteVolume};
+  try{ const j = await bfetch(`/api/v1/futures/market/tickers?symbols=${symbol}`);
+    const d = (j.data||[])[0] || {}; const price=+(d.lastPrice||d.last||d.markPrice||0), open=+(d.open||price||0);
+    return {price, chg:open?((price-open)/open*100):0, vol:+(d.quoteVol||0)};
   }catch(e){ return null; }
 }
 async function fetchPrice(symbol){
-  try{ const d = await bfetch(`/fapi/v1/ticker/price?symbol=${symbol}`); return +d.price; }catch(e){ return null; }
+  try{ const d = await fetchTicker24(symbol); return d?.price || null; }catch(e){ return null; }
 }
 // دامیننس تتر از CoinGecko (هر ۵ دقیقه)
 let usdtDom = {value:null, prev:null, ts:0};
