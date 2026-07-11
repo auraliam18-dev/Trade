@@ -49,6 +49,8 @@ REPORTS_DIR = PROJECT_DIR / "reports"
 STATE_DIR = PROJECT_DIR / "state"
 LOGS_DIR = PROJECT_DIR / "logs"
 DASHBOARD_FILE = PROJECT_DIR / "04_dashboard_panel_20260610_002822_IRST.html"
+LEGACY_DASHBOARD_FILE = PROJECT_DIR / "Future signal"
+QUALITY_SIGNAL_PANEL_FILE = PROJECT_DIR / "06_quality_signal_panel_20260710_UTC.html"
 STATE_FILE = STATE_DIR / "hamid_signal_state.json"
 DB_FILE = STATE_DIR / "hamid_paper_trading.sqlite3"
 
@@ -773,7 +775,19 @@ class SignalEngine:
         if market_context.get("risk_mode") == "RISK_ON" and direction == "SHORT":
             context_penalty += 3
 
+        score_components = {
+            "base_score": round(base_score, 2),
+            "directional_edge": round(directional_edge, 2),
+            "tf_agreement_bonus": round(tf_agreement * 4.5, 2),
+            "liquidity_bonus": round(liquidity_bonus, 2),
+            "volume_bonus": round(volume_bonus, 2),
+            "funding_penalty": round(funding_penalty, 2),
+            "context_penalty": round(context_penalty, 2),
+            "timeframe_weights": {"5m": 0.35, "15m": 0.40, "1h": 0.25},
+            "least_quality_impact_engine": "liquidity_bonus",
+        }
         score = clamp(base_score + liquidity_bonus + volume_bonus - funding_penalty - context_penalty, 0, 100)
+        quality_score = clamp(score - liquidity_bonus, 0, 100)
 
         atr15 = max(m15["atr"], current * 0.0025)
         if direction == "LONG":
@@ -845,6 +859,8 @@ class SignalEngine:
             "status": status,
             "direction": direction,
             "score": round(score, 2),
+            "quality_score": round(quality_score, 2),
+            "score_components": score_components,
             "grade": "HIGH" if score >= self.settings.strong_signal_score else "MEDIUM" if score >= self.settings.min_signal_score else "LOW",
             "entry": round_price(current),
             "stop_loss": round_price(stop),
@@ -1511,6 +1527,7 @@ class SignalService:
             "market_cap",
             "top100_volume_24h",
             "pre_pump_score",
+            "quality_score",
             "risk_mode",
             "persistence",
             "blocked_reason",
@@ -1550,6 +1567,33 @@ class SignalService:
         }
 
 
+def engine_audit_payload(settings: Settings) -> Dict[str, Any]:
+    return {
+        "generated_at": now_iso(),
+        "decision": {
+            "least_quality_impact_engine": "liquidity_bonus",
+            "recommendation": "Keep liquidity as a hard safety filter and tie-breaker, but do not let the extra +4 liquidity bonus promote otherwise weak signals.",
+            "reason_fa": "بعد از عبور از حداقل نقدشوندگی، حجم دلاری بیشتر فقط اجرای معامله را راحت‌تر می‌کند؛ جهت، ساختار، مومنتوم و کیفیت ورود را تایید نمی‌کند.",
+        },
+        "backend_scoring": [
+            {"engine": "timeframe_metrics", "components": ["EMA stack", "MACD", "RSI", "VWAP", "ADX", "BOS", "volume_z", "Bollinger position"], "quality_role": "core directional quality"},
+            {"engine": "multi_timeframe_blend", "weights": {"5m": 0.35, "15m": 0.40, "1h": 0.25}, "quality_role": "primary signal direction and edge"},
+            {"engine": "tf_agreement", "max_bonus": 13.5, "quality_role": "confirmation; required by signal gate"},
+            {"engine": "liquidity_bonus", "max_bonus": 4, "quality_role": "execution/tie-breaker only", "quality_impact": "lowest"},
+            {"engine": "volume_bonus", "max_bonus": 8, "quality_role": "secondary confirmation; non-directional and should be inspected"},
+            {"engine": "funding_penalty", "max_penalty": 6, "quality_role": "crowding/risk control"},
+            {"engine": "market_context_penalty", "max_penalty": 5, "quality_role": "macro risk alignment"},
+            {"engine": "hard_filters", "components": ["min_quote_volume_usd", "ADX range filter", "RR", "trend_quality_ok", "persistence/flip lock"], "quality_role": "blocks weak or unsafe candidates"},
+        ],
+        "thresholds": {
+            "min_signal_score": settings.min_signal_score,
+            "strong_signal_score": settings.strong_signal_score,
+            "min_quote_volume_usd": settings.min_quote_volume_usd,
+            "min_rr": settings.min_rr,
+        },
+    }
+
+
 SERVICE = SignalService(Settings())
 
 
@@ -1583,7 +1627,17 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         if self.path in ("/", "/index.html"):
-            body = DASHBOARD_FILE.read_bytes()
+            dashboard_path = DASHBOARD_FILE if DASHBOARD_FILE.exists() else LEGACY_DASHBOARD_FILE
+            body = dashboard_path.read_bytes()
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path in ("/quality-panel", "/quality-panel.html", "/cursor-codex", "/cursor-codex.html"):
+            body = QUALITY_SIGNAL_PANEL_FILE.read_bytes()
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -1613,6 +1667,9 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/signals":
             self._send_json(SERVICE.store.snapshot().get("signals", []))
+            return
+        if self.path == "/api/engine-audit":
+            self._send_json(engine_audit_payload(SERVICE.settings))
             return
         if self.path == "/api/universe":
             self._send_json(SERVICE.store.snapshot().get("universe", []))
