@@ -49,6 +49,10 @@ REPORTS_DIR = PROJECT_DIR / "reports"
 STATE_DIR = PROJECT_DIR / "state"
 LOGS_DIR = PROJECT_DIR / "logs"
 DASHBOARD_FILE = PROJECT_DIR / "04_dashboard_panel_20260610_002822_IRST.html"
+STATIC_FILES = {
+    "/static/dashboard.css": (PROJECT_DIR / "static/dashboard.css", "text/css; charset=utf-8"),
+    "/static/dashboard.js": (PROJECT_DIR / "static/dashboard.js", "text/javascript; charset=utf-8"),
+}
 STATE_FILE = STATE_DIR / "hamid_signal_state.json"
 DB_FILE = STATE_DIR / "hamid_paper_trading.sqlite3"
 
@@ -1582,6 +1586,23 @@ class AppHandler(BaseHTTPRequestHandler):
         self._send_json({"ok": True})
 
     def do_GET(self) -> None:  # noqa: N802
+        # Only these two known assets are served; never map URL paths to the filesystem.
+        static_asset = STATIC_FILES.get(urllib.parse.urlsplit(self.path).path)
+        if static_asset:
+            file_path, content_type = static_asset
+            try:
+                body = file_path.read_bytes()
+            except OSError:
+                self._send_json({"error": "not found"}, status=404)
+                return
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Cache-Control", "public, max-age=300")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path in ("/", "/index.html"):
             body = DASHBOARD_FILE.read_bytes()
             self.send_response(HTTPStatus.OK)
