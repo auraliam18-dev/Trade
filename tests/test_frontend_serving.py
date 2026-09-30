@@ -3,6 +3,10 @@
 import contextlib
 import http.client
 import importlib.util
+import re
+import shutil
+import subprocess
+import tempfile
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
@@ -66,12 +70,48 @@ class FrontendServingTest(unittest.TestCase):
 
     def test_pages_artifact_entry_point(self):
         workflow = (ROOT / ".github/workflows/static.yml").read_text()
-        self.assertIn("path: '.'", workflow)
+        self.assertIn("path: '_site'", workflow)
+        self.assertNotIn("path: '.'", workflow)
         self.assertEqual((ROOT / "index.html").read_bytes(), PANEL.read_bytes())
         html = PANEL.read_text()
         for asset in ("static/dashboard.css", "static/dashboard.js"):
             self.assertIn(f'"{asset}"', html)
             self.assertTrue((ROOT / asset).is_file())
+
+    def test_pages_artifact_contains_only_required_frontend_files(self):
+        workflow = (ROOT / ".github/workflows/static.yml").read_text()
+        stage = re.search(
+            r"      - name: Stage Pages artifact\n"
+            r"        shell: bash\n        run: \|\n"
+            r"((?:          .*\n)+)", workflow
+        )
+        self.assertIsNotNone(stage, "Pages must stage an explicit artifact")
+        script = "\n".join(line[10:] for line in stage.group(1).splitlines())
+        expected = {"index.html", "static/dashboard.css", "static/dashboard.js"}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for path in expected:
+                target = root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / path, target)
+            forbidden = (
+                BACKEND.name, "Future signal", PANEL.name,
+                "tests/test_frontend_serving.py", ".github/workflows/static.yml",
+                "data/history.json", "static/private.json", "README.md",
+                "_site/stale.txt",
+            )
+            for path in forbidden:
+                target = root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("must not be published")
+            subprocess.run(["bash", "-c", script], cwd=root, check=True)
+            output = root / "_site"
+            actual = {str(path.relative_to(output)) for path in output.rglob("*") if path.is_file()}
+            self.assertEqual(actual, expected)
+            for path in expected:
+                self.assertEqual((output / path).read_bytes(), (ROOT / path).read_bytes())
+            for path in forbidden:
+                self.assertFalse((output / path).exists(), path)
 
 
 if __name__ == "__main__":
