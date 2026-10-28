@@ -49,6 +49,7 @@ REPORTS_DIR = PROJECT_DIR / "reports"
 STATE_DIR = PROJECT_DIR / "state"
 LOGS_DIR = PROJECT_DIR / "logs"
 DASHBOARD_FILE = PROJECT_DIR / "04_dashboard_panel_20260610_002822_IRST.html"
+STATIC_DIR = PROJECT_DIR / "static"
 STATE_FILE = STATE_DIR / "hamid_signal_state.json"
 DB_FILE = STATE_DIR / "hamid_paper_trading.sqlite3"
 
@@ -338,7 +339,14 @@ class ApiClient:
             return self.fetch_coingecko_top100()
         except Exception as exc:
             self.store.event("WARN", "CoinGecko top100 failed; falling back to Binance volume", {"error": str(exc)})
+        try:
             return self.fetch_binance_volume_universe()
+        except Exception as exc:
+            # Keep the service and dashboard healthy when a deployment network
+            # blocks all upstream providers. The scan will be reported as
+            # DATA_SOURCE_LIMITED instead of crashing the background worker.
+            self.store.event("ERROR", "All universe providers are unreachable", {"error": str(exc)})
+            return []
 
     def fetch_exchange_info(self) -> Dict[str, Any]:
         if self.exchange_info_cache and time.time() - self.exchange_info_loaded_at < 3600:
@@ -408,7 +416,12 @@ class ApiClient:
         url = f"{BINANCE_FAPI_BASE}/fapi/v1/klines?{params}"
         payload = self.request_json(url, timeout=20)
         candles = []
+        # Binance includes the currently-forming candle. Indicators must only
+        # consume confirmed candles or signals will repaint between scans.
+        current_ms = int(time.time() * 1000)
         for row in payload:
+            if int(row[6]) >= current_ms:
+                continue
             candles.append(
                 {
                     "open_time": int(row[0]),
@@ -1057,9 +1070,12 @@ class PaperBroker:
 
                 if close_reason:
                     final_qty = safe_float(pos.get("qty"))
-                    final_pnl = ((exit_price - entry) if direction == "LONG" else (entry - exit_price)) * final_qty
-                    final_pnl += safe_float(pos.get("realized_partial_pnl"))
-                    realized += final_pnl
+                    remaining_pnl = ((exit_price - entry) if direction == "LONG" else (entry - exit_price)) * final_qty
+                    partial_pnl = safe_float(pos.get("realized_partial_pnl"))
+                    final_pnl = remaining_pnl + partial_pnl
+                    # Partial profit was added to realized at TP1. Only add the
+                    # remaining leg here to avoid counting TP1 profit twice.
+                    realized += remaining_pnl
                     closed_trade = {
                         "id": pos["id"],
                         "opened_at": pos["opened_at"],
@@ -1561,12 +1577,20 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self._send_security_headers()
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_security_headers(self) -> None:
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "script-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'",
+        )
 
     def _read_json(self) -> Dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
@@ -1579,19 +1603,56 @@ class AppHandler(BaseHTTPRequestHandler):
             return {}
 
     def do_OPTIONS(self) -> None:  # noqa: N802
-        self._send_json({"ok": True})
+        self._send_json({"error": "cross-origin requests are not enabled"}, status=HTTPStatus.METHOD_NOT_ALLOWED)
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        path = urllib.parse.urlsplit(self.path).path
+        files = {
+            "/": (DASHBOARD_FILE, "text/html; charset=utf-8", "no-store"),
+            "/index.html": (DASHBOARD_FILE, "text/html; charset=utf-8", "no-store"),
+            "/static/dashboard.css": (STATIC_DIR / "dashboard.css", "text/css; charset=utf-8", "public, max-age=300"),
+            "/static/dashboard.js": (STATIC_DIR / "dashboard.js", "text/javascript; charset=utf-8", "public, max-age=300"),
+        }
+        item = files.get(path)
+        if not item:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        file_path, content_type, cache_control = item
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", cache_control)
+        self._send_security_headers()
+        self.send_header("Content-Length", str(file_path.stat().st_size))
+        self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
-        if self.path in ("/", "/index.html"):
+        path = urllib.parse.urlsplit(self.path).path
+        if path in ("/", "/index.html"):
             body = DASHBOARD_FILE.read_bytes()
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
+            self._send_security_headers()
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
             return
-        if self.path == "/api/status":
+        static_files = {
+            "/static/dashboard.css": (STATIC_DIR / "dashboard.css", "text/css; charset=utf-8"),
+            "/static/dashboard.js": (STATIC_DIR / "dashboard.js", "text/javascript; charset=utf-8"),
+        }
+        if path in static_files:
+            file_path, content_type = static_files[path]
+            body = file_path.read_bytes()
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Cache-Control", "public, max-age=300")
+            self._send_security_headers()
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/api/status":
             snap = SERVICE.store.snapshot()
             self._send_json(
                 {
@@ -1611,16 +1672,16 @@ class AppHandler(BaseHTTPRequestHandler):
                 }
             )
             return
-        if self.path == "/api/signals":
+        if path == "/api/signals":
             self._send_json(SERVICE.store.snapshot().get("signals", []))
             return
-        if self.path == "/api/universe":
+        if path == "/api/universe":
             self._send_json(SERVICE.store.snapshot().get("universe", []))
             return
-        if self.path == "/api/events":
+        if path == "/api/events":
             self._send_json(SERVICE.store.snapshot().get("events", []))
             return
-        if self.path == "/api/report":
+        if path == "/api/report":
             snap = SERVICE.store.snapshot()
             self._send_json({"last_report": snap.get("last_report"), "paper": snap.get("paper")})
             return
@@ -1628,17 +1689,18 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         body = self._read_json()
-        if self.path == "/api/scan-now":
+        path = urllib.parse.urlsplit(self.path).path
+        if path == "/api/scan-now":
             try:
                 self._send_json(SERVICE.run_scan("manual_api"))
             except Exception as exc:
                 self._send_json({"status": "ERROR", "error": str(exc)}, status=500)
             return
-        if self.path == "/api/start-paper":
+        if path == "/api/start-paper":
             hours = safe_float(body.get("hours"), SERVICE.settings.paper_target_hours)
             self._send_json(SERVICE.start_paper(hours))
             return
-        if self.path == "/api/stop-paper":
+        if path == "/api/stop-paper":
             self._send_json(SERVICE.stop_paper())
             return
         self._send_json({"error": "not found"}, status=404)

@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#070b14" />
+    <title>اتاق سیگنال حمید</title>
+    <link rel="stylesheet" href="/static/dashboard.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topin">
+        <div class="brand">
+          <div class="logo">H</div>
+          <div>
+            <h1>HAMID SIGNAL ROOM</h1>
+            <p>موتور تحلیل فیوچرز · Paper First</p>
+          </div>
+        </div>
+        <div class="actions">
+          <div class="status">
+            <i class="dot" id="dot"></i
+            ><span id="statusText">در حال اتصال</span>
+          </div>
+          <button class="btn primary" id="scanBtn">اسکن جدید</button>
+        </div>
+      </div>
+    </header>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <h2>اتاق تولید سیگنال</h2>
+          <p>تصمیم‌گیری سریع با تایید چندتایم‌فریمی و کنترل ریسک</p>
+        </div>
+        <div class="updated" id="updated">آخرین بروزرسانی: —</div>
+      </section>
+      <section class="system-alert" id="systemAlert" hidden></section>
+      <section class="metrics" id="metrics"></section>
+      <nav class="tabs">
+        <button class="tab active" data-tab="signals">
+          سیگنال‌های تاییدشده</button
+        ><button class="tab" data-tab="paper">معاملات آزمایشی</button
+        ><button class="tab" data-tab="universe">رادار بازار</button
+        ><button class="tab" data-tab="events">رویدادها</button>
+      </nav>
+      <section class="panel active" id="signals">
+        <div class="toolbar">
+          <input
+            class="field search"
+            id="search"
+            placeholder="جست‌وجوی نماد مثل BTC"
+          /><select class="field" id="direction">
+            <option value="">همه جهت‌ها</option>
+            <option>LONG</option>
+            <option>SHORT</option></select
+          ><select class="field" id="quality">
+            <option value="0">همه امتیازها</option>
+            <option value="82">قوی ۸۲+</option>
+            <option value="90">ممتاز ۹۰+</option></select
+          ><span class="count" id="signalCount"></span>
+        </div>
+        <div class="signal-grid" id="signalGrid"></div>
+      </section>
+      <section class="panel" id="paper">
+        <div class="paperbox">
+          <div class="box">
+            <h3>پرتفوی آزمایشی</h3>
+            <div class="paperstats" id="paperStats"></div>
+            <div style="margin-top: 13px; display: flex; gap: 8px">
+              <button class="btn primary" id="startPaper">
+                شروع تست ۸ ساعته</button
+              ><button class="btn danger" id="stopPaper">توقف</button>
+            </div>
+          </div>
+          <div class="box">
+            <h3>کنترل ریسک فعال</h3>
+            <div id="riskRules"></div>
+          </div>
+        </div>
+        <div class="tablewrap" style="margin-top: 12px">
+          <table>
+            <thead>
+              <tr>
+                <th>نماد</th>
+                <th>جهت</th>
+                <th>ورود</th>
+                <th>قیمت فعلی</th>
+                <th>سود/زیان</th>
+                <th>ریسک</th>
+                <th>وضعیت</th>
+              </tr>
+            </thead>
+            <tbody id="positions"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="panel" id="universe">
+        <div class="toolbar">
+          <input
+            class="field search"
+            id="radarSearch"
+            placeholder="جست‌وجو در ۱۰۰ ارز"
+          /><select class="field" id="radarStatus">
+            <option value="">همه وضعیت‌ها</option>
+            <option value="WATCH">زیر نظر</option>
+            <option value="RANGE_FILTERED">فیلتر رنج</option>
+            <option value="LOW_LIQUIDITY">نقدشوندگی کم</option></select
+          ><span class="count" id="universeCount"></span>
+        </div>
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th>رتبه</th>
+                <th>نماد</th>
+                <th>وضعیت</th>
+                <th>جهت</th>
+                <th>امتیاز</th>
+                <th>تایید TF</th>
+                <th>تغییر ۲۴h</th>
+                <th>حجم</th>
+              </tr>
+            </thead>
+            <tbody id="universeRows"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="panel" id="events">
+        <div class="box" id="eventList"></div>
+      </section>
+    </main>
+    <div class="modal" id="modal"><div class="dialog" id="dialog"></div></div>
+    <div class="toast" id="toast"></div>
+    <script src="/static/dashboard.js" defer></script>
+  </body>
+</html>
